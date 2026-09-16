@@ -1,6 +1,6 @@
 # SPEC 01 — P0 Foundation: scaffold, frozen contracts and seeded schema
 
-> **Status:** Approved
+> **Status:** Implemented
 > **Depends on:** —
 > **Date:** 2026-09-16
 > **Objective:** Stand up a NestJS repository that builds, boots two entrypoints, migrates a PostGIS schema and seeds it, freezing the domain entities, port interfaces and database schema that every later phase compiles against.
@@ -244,43 +244,43 @@ next one starts.
 
 ## Acceptance criteria
 
-- [ ] `docker compose up` from a clean clone brings up `postgres`, `migrate`,
+- [x] `docker compose up` from a clean clone brings up `postgres`, `migrate`,
       `seed`, `api` and `worker` with no manual steps.
-- [ ] Migrations run exactly once on a cold start, from the `migrate` service
+- [x] Migrations run exactly once on a cold start, from the `migrate` service
       only.
-- [ ] `npm run migration:revert` reverts the migration on an empty database
+- [x] `npm run migration:revert` reverts the migration on an empty database
       without error.
-- [ ] Running `docker compose up` a second time leaves every table's row count
+- [x] Running `docker compose up` a second time leaves every table's row count
       unchanged.
-- [ ] When the `seed` service exits non-zero, `api` and `worker` do not start and
+- [x] When the `seed` service exits non-zero, `api` and `worker` do not start and
       `docker compose up` terminates naming the failed dependency.
-- [ ] `GET /health` on the api returns 200 and reports the PostgreSQL check as up.
-- [ ] The `worker` container starts, connects to the database, binds no HTTP port
+- [x] `GET /health` on the api returns 200 and reports the PostgreSQL check as up.
+- [x] The `worker` container starts, connects to the database, binds no HTTP port
       and stays up.
-- [ ] `psql` confirms the `postgis` extension is installed.
-- [ ] `psql` confirms `idx_warehouses_location_gist` exists and is a GiST index.
-- [ ] `psql` confirms the CHECK constraints on `inventory.quantity_available`,
+- [x] `psql` confirms the `postgis` extension is installed.
+- [x] `psql` confirms `idx_warehouses_location_gist` exists and is a GiST index.
+- [x] `psql` confirms the CHECK constraints on `inventory.quantity_available`,
       `inventory.quantity_reserved` and `order_items.quantity`.
-- [ ] `SELECT name, latitude, longitude FROM warehouses` returns numeric
+- [x] `SELECT name, latitude, longitude FROM warehouses` returns numeric
       coordinates, or the deviation is recorded in the decisions section.
-- [ ] `UPDATE warehouses SET latitude = 0` is rejected by PostgreSQL, or the
+- [x] `UPDATE warehouses SET latitude = 0` is rejected by PostgreSQL, or the
       deviation is recorded.
-- [ ] Inserting a second `CAPTURED` payment for the same order is rejected by the
+- [x] Inserting a second `CAPTURED` payment for the same order is rejected by the
       partial unique index.
-- [ ] Inserting an `inventory` row with `quantity_available = -1` is rejected.
-- [ ] The seed produces a product fillable by exactly one warehouse, one fillable
+- [x] Inserting an `inventory` row with `quantity_available = -1` is rejected.
+- [x] The seed produces a product fillable by exactly one warehouse, one fillable
       by several with an unambiguous nearest, one fillable by none, and one
       stocked at exactly a requested quantity.
-- [ ] Booting the api with `DATABASE_URL` unset exits non-zero and names the
+- [x] Booting the api with `DATABASE_URL` unset exits non-zero and names the
       missing variable.
-- [ ] A file under `src/domain/` importing `@nestjs/common` fails `npm run lint`.
-- [ ] A file under `src/domain/` importing `typeorm` fails `npm run lint`.
-- [ ] `order.status = 'CONFIRMED'` fails to compile; `Coordinates.of(40, -74)`
+- [x] A file under `src/domain/` importing `@nestjs/common` fails `npm run lint`.
+- [x] A file under `src/domain/` importing `typeorm` fails `npm run lint`.
+- [x] `order.status = 'CONFIRMED'` fails to compile; `Coordinates.of(40, -74)`
       (positional args) fails to compile.
-- [ ] `npm run lint` and `npm run build` pass.
-- [ ] The Jest suite passes, including the `Money` and state machine unit tests
+- [x] `npm run lint` and `npm run build` pass.
+- [x] The Jest suite passes, including the `Money` and state machine unit tests
       that run with no database.
-- [ ] `npm run verify` is green end to end.
+- [x] `npm run verify` is green end to end.
 
 ## Decisions
 
@@ -393,6 +393,17 @@ next one starts.
   reference-data job, because the two lifecycles are separate. Here the
   `docker compose up` is the deliverable and the four seeded inventory scenarios
   are what make P1 and P6 demonstrable, so the coupling is deliberate.
+- **Yes:** the gate on `seed` (previous decision) was verified live, not just
+  wired — `seed.ts` was temporarily made to throw, `docker compose up` run
+  clean, and `api`/`worker` stayed in `Created` (never started), `seed` in
+  `Exited (1)`, naming the failed dependency exactly as acceptance criterion 5
+  requires. Reverted after confirming.
+- **Yes:** the seed catalogue grew from R0.8's "~8 Apple products" to 15, at
+  the user's request, to cover more of the current lineup (iPhone 16/17
+  generation, not 18, at the user's explicit request; MacBook Air/Pro M3/M4;
+  iPad Air/Pro; AirPods Pro 3/4). R0.8 says "~8", not exactly 8, so this stays
+  within the frozen contract; the four required scenarios were re-verified
+  against the expanded catalogue by SKU, not just by product index.
 - **Yes:** the seed stays invocable as `npm run seed` independently of compose. A
   load that fails for an odd reason can be cleaned up and re-run by hand against
   the running stack, without rebuilding anything.
