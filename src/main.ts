@@ -1,5 +1,7 @@
+import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
+
+import { ApiModule } from './modules/api.module';
 
 async function bootstrap() {
   // abortOnError: false — without it, Nest's own bootstrap exception zone
@@ -7,7 +9,12 @@ async function bootstrap() {
   // stack trace and calls process.exit(1) itself, before the promise below
   // ever rejects. Disabling it means every bootstrap failure, config or
   // otherwise, is reported the same deliberate way below.
-  const app = await NestFactory.create(AppModule, { abortOnError: false });
+  const app = await NestFactory.create(ApiModule, { abortOnError: false });
+  // R0.1: global ValidationPipe, no DTOs to validate yet — P4 only writes
+  // DTOs, this file does not change again for that.
+  app.useGlobalPipes(
+    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
+  );
   await app.listen(process.env.PORT ?? 3000);
 }
 

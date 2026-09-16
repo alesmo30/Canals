@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { DataSource } from 'typeorm';
 
 import { validateEnv } from '../config/env.schema';
+import { PERSISTENCE_ENTITIES } from './persistence-entities';
 
 /**
  * TypeORM CLI entrypoint — `npm run migration:run` / `migration:generate` /
@@ -16,10 +17,7 @@ const config = validateEnv(process.env);
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: config.DATABASE_URL,
-  // Only the ten persistence entities (step 9) — `entities/` holds nothing
-  // but *.orm-entity files; the suffix is a defensive filter against a
-  // future *.orm-entity.spec.ts landing in the same folder.
-  entities: [__dirname + '/entities/*.orm-entity.{ts,js}'],
+  entities: PERSISTENCE_ENTITIES,
   migrations: [__dirname + '/migrations/*.{ts,js}'],
   // R0.4: synchronize: false in every environment. Migrations are the only
   // way the schema changes.
