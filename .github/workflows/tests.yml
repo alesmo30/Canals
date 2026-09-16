@@ -1,0 +1,64 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Run test suite
+    runs-on: ubuntu-latest
+
+    services:
+      # Same image as docker-compose.yml's postgres service (postgis, not
+      # plain postgres) — coordinates value object relies on the postgis
+      # extension being present in the migrated schema.
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: canals
+          POSTGRES_USER: canals
+          POSTGRES_PASSWORD: canals
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h localhost -U canals"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://canals:canals@localhost:5432/canals
+      PAYMENTS_URL: http://localhost:4000
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
+      GEOCODING_DRIVER: static
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # data-source.spec.ts queries every entity against the migrated
+      # schema, so the service DB needs the real migrations applied first —
+      # a fresh, unmigrated postgres container isn't enough.
+      - name: Run migrations
+        run: npm run migration:run
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Run tests
+        run: npm run test
