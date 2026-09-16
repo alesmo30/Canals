@@ -1,3 +1,4 @@
+import { assertValidOrderTransition } from './order-status.transitions';
 import { OrderStatus } from '../enum-types/order-status';
 import { Coordinates } from '../value-objects/coordinates';
 import { Money } from '../value-objects/money';
@@ -30,10 +31,11 @@ export interface OrderProps {
 }
 
 /**
- * Mirrors an `orders` row. R0.5 (frozen contract): fields and read access
- * only here — the guarded status transition (`transitionTo`) is added by
- * order-status.transitions.ts (step 5), which this class will use once it
- * lands, so the transition table has exactly one place to live.
+ * Mirrors an `orders` row. R0.5 (frozen contract): `status` is exposed as a
+ * getter only — there is no public `status` property, so
+ * `order.status = 'CONFIRMED'` fails to compile (TS2339: no such property).
+ * The only way to change it is through the named methods below, each of
+ * which checks order-status.transitions.ts before mutating.
  */
 export class Order {
   constructor(private readonly props: OrderProps) {}
@@ -76,5 +78,45 @@ export class Order {
 
   getCancellationReason(): string | null {
     return this.props.cancellationReason;
+  }
+
+  getConfirmedAt(): Date | null {
+    return this.props.confirmedAt;
+  }
+
+  getCancelledAt(): Date | null {
+    return this.props.cancelledAt;
+  }
+
+  /** PENDING_PAYMENT -> PAID. FR-5 phase 3, approved: the payment provider captured the charge. */
+  markPaid(): void {
+    assertValidOrderTransition(this.props.status, 'PAID');
+    this.props.status = 'PAID';
+  }
+
+  /**
+   * PENDING_PAYMENT -> PAYMENT_FAILED. FR-5 phase 3, declined: the
+   * reservation has already been released by the caller (Inventory.release,
+   * outside this entity — that is a repository/use-case concern, not this
+   * one order's).
+   */
+  markPaymentFailed(): void {
+    assertValidOrderTransition(this.props.status, 'PAYMENT_FAILED');
+    this.props.status = 'PAYMENT_FAILED';
+  }
+
+  /** PAID -> CONFIRMED. FR-5 phase 3: the reservation is committed for good and the order.confirmed outbox event fires. */
+  confirm(): void {
+    assertValidOrderTransition(this.props.status, 'CONFIRMED');
+    this.props.status = 'CONFIRMED';
+    this.props.confirmedAt = new Date();
+  }
+
+  /** PENDING_PAYMENT -> CANCELLED. The only path in: reservation expired past reservation_expires_at (the reaper), never a PAYMENT_FAILED order. */
+  cancel(reason: string): void {
+    assertValidOrderTransition(this.props.status, 'CANCELLED');
+    this.props.status = 'CANCELLED';
+    this.props.cancelledAt = new Date();
+    this.props.cancellationReason = reason;
   }
 }

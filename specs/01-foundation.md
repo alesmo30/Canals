@@ -337,13 +337,23 @@ next one starts.
   let `Coordinates.of(lng, lat)` compile silently — the ±90/±180 range checks
   do not catch a swap within the continental US, since both values are in
   range for both fields either way.
-- **Noted, not yet closed:** two pieces of the revised R0.5 are contract, not
-  yet code, as of step 4. `Money`'s "mixing currencies must not compile" is
-  currently a runtime guard (`assertSameCurrency` throws); making it a type
-  error needs a currency-branded type, not attempted yet. `Order`'s named
-  transition methods (`markPaid()`, `markPaymentFailed()`, `confirm()`,
-  `cancel()`) and the guard against `order.status = 'CONFIRMED'` are step 5's
-  content — `Order` in step 4 is fields and getters only.
+- **Yes:** `Order`'s named transition methods (`markPaid()`,
+  `markPaymentFailed()`, `confirm()`, `cancel()`) built in step 5, each
+  checking `order-status.transitions.ts`'s table before mutating. `status`
+  has no public setter, so `order.status = 'CONFIRMED'` already fails to
+  compile (TS2339: no such property) — verified directly with `tsc`, both
+  with and without the regression test's `@ts-expect-error` in place.
+- **Yes:** `PAYMENT_FAILED` and `CANCELLED` both terminal, no transition
+  between them, resolving the tension flagged in step 4 between
+  architectural-requirements.md's diagram (draws `PAYMENT_FAILED ──►
+  CANCELLED`) and three other passages of that same document (the
+  `order_status` enum note, FR-5 phase 3's three settle outcomes, and the
+  reaper/reconciliation logic only ever touching `PENDING_PAYMENT` orders).
+  Flagged in step 4's report; no objection raised before step 5 built on it.
+- **Noted, not yet closed:** `Money`'s "mixing currencies must not compile"
+  is still a runtime guard (`assertSameCurrency` throws), not a type error —
+  that needs a currency-branded type, not attempted. Out of step 5's scope
+  (the order state machine); still open for a later pass.
 
 **Configuration and validation**
 
