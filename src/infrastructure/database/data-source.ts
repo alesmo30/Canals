@@ -10,16 +10,16 @@ import { validateEnv } from '../config/env.schema';
  * validates `process.env` directly through the same Zod schema the app
  * uses at boot (env.schema.ts) rather than duplicating a second, looser
  * check.
- *
- * `entities` stays empty until step 9 adds the persistence entities under
- * `src/infrastructure/database/entities/**`.
  */
 const config = validateEnv(process.env);
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: config.DATABASE_URL,
-  entities: [],
+  // Only the ten persistence entities (step 9) — `entities/` holds nothing
+  // but *.orm-entity files; the suffix is a defensive filter against a
+  // future *.orm-entity.spec.ts landing in the same folder.
+  entities: [__dirname + '/entities/*.orm-entity.{ts,js}'],
   migrations: [__dirname + '/migrations/*.{ts,js}'],
   // R0.4: synchronize: false in every environment. Migrations are the only
   // way the schema changes.
