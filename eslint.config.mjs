@@ -32,4 +32,40 @@ export default tseslint.config(
       "prettier/prettier": ["error", { endOfLine: "auto" }],
     },
   },
+  {
+    // R0.2 (frozen contract): src/domain/** is pure TypeScript with no
+    // framework or persistence dependencies, and it must not reach into
+    // infrastructure — it depends on ports, not adapters.
+    files: ['src/domain/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'typeorm',
+              message: 'src/domain must stay framework-free: no typeorm imports.',
+            },
+          ],
+          patterns: [
+            {
+              group: ['@nestjs/*', '@nestjs/**'],
+              message: 'src/domain must stay framework-free: no @nestjs/* imports.',
+            },
+            {
+              group: [
+                '@infrastructure/*',
+                '@infrastructure/**',
+                '*infrastructure*',
+                '**/infrastructure/*',
+                '**/infrastructure/**',
+              ],
+              message:
+                'src/domain must not import src/infrastructure — depend on ports (src/domain/ports), not adapters.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 );
