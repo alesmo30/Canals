@@ -1,0 +1,91 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: canals
+      POSTGRES_USER: canals
+      POSTGRES_PASSWORD: canals
+    ports: ['5432:5432']
+    volumes: ['pgdata:/var/lib/postgresql/data']
+    healthcheck:
+      # -h localhost forces a real TCP connection, not the local Unix
+      # socket. Without -h, `pg_isready` checks the socket, which the
+      # postgres image's temporary init server also answers on — succeeding
+      # healthy during the brief init-then-restart window before the real,
+      # long-running server is actually listening on TCP. Other containers
+      # only ever reach postgres over TCP, so the check now matches what
+      # they experience. Reproduced without this: `migrate` got
+      # ECONNREFUSED against a postgres compose had just reported healthy.
+      test: ['CMD-SHELL', 'pg_isready -h localhost -U canals']
+      interval: 5s
+      retries: 10
+      start_period: 10s
+
+  # R0.4/R0.7: migrations run from exactly one place. One-shot: it runs
+  # migration:run:prod once and exits; api/worker never run migrations
+  # themselves (specs/01-foundation.md, Decisions).
+  migrate:
+    build: .
+    command: npm run migration:run:prod
+    environment:
+      DATABASE_URL: postgres://canals:canals@postgres:5432/canals
+      PAYMENTS_URL: http://payments-mock:4000
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  # One-shot, after migrate. api/worker are gated on this succeeding, not
+  # only on migrate: a half-loaded seed is invisible at boot and resurfaces
+  # later as a warehouse-selection query returning 409 for an order that
+  # should be fillable (specs/01-foundation.md, Decisions).
+  seed:
+    build: .
+    command: npm run seed:prod
+    environment:
+      DATABASE_URL: postgres://canals:canals@postgres:5432/canals
+      PAYMENTS_URL: http://payments-mock:4000
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  # --- P2 adds here: payments-mock ---
+  # payments-mock:
+  #   build: { context: ., dockerfile: docker/payments-mock.Dockerfile }
+  #   ports: ['4000:4000']
+  #   healthcheck:
+  #     test: ['CMD', 'wget', '-qO-', 'http://localhost:4000/health']
+  #     interval: 5s
+  #     retries: 10
+
+  # --- P3 adds here: lgtm (OTel/Grafana) ---
+  # lgtm:
+  #   image: grafana/otel-lgtm
+  #   ports:
+  #     - '3001:3000'   # Grafana UI (3000 is taken by the api)
+  #     - '4318:4318'   # OTLP/HTTP ingest
+
+  api:
+    build: .
+    command: node dist/main.js
+    ports: ['3000:3000']
+    environment:
+      DATABASE_URL: postgres://canals:canals@postgres:5432/canals
+      PAYMENTS_URL: http://payments-mock:4000
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+      GEOCODING_DRIVER: static # set to `geoapify` + GEOAPIFY_API_KEY for the real one (P2)
+    depends_on:
+      seed: { condition: service_completed_successfully }
+      # P2 adds: payments-mock: { condition: service_healthy }
+
+  worker:
+    build: .
+    command: node dist/main.worker.js
+    environment:
+      DATABASE_URL: postgres://canals:canals@postgres:5432/canals
+      PAYMENTS_URL: http://payments-mock:4000
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+    depends_on:
+      seed: { condition: service_completed_successfully }
+
+volumes:
+  pgdata:
