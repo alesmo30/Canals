@@ -29,11 +29,13 @@
     "seed:prod": "node dist/infrastructure/database/seed.js",
     "verify:db": "ts-node -r tsconfig-paths/register src/infrastructure/database/verify-schema.ts",
     "test": "jest",
+    "test:unit": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
+    "test:integration": "jest --config ./test/jest-integration.json",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "verify": "npm run lint && npm run build && npm run test && npm run verify:db"
+    "verify": "npm run lint && npm run build && npm run test:unit && npm run test:integration && npm run test:e2e && npm run verify:db"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -84,6 +86,10 @@
     ],
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "\\.integration\\.spec\\.ts$"
+    ],
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
