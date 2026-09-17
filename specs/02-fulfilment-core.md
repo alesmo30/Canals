@@ -439,6 +439,48 @@ onward are verified against the running compose stack on `localhost:5432`.
   tests.
 - **No:** accepting either plan and only failing on an explicit `Sort` node.
   Stable, but it stops proving the thing the phase is graded on.
+- **Captured (step 4):** the planner refuses `Index Scan using
+  idx_warehouses_location_gist` once the `inventory`/`products` join sits in
+  the same query as the `ORDER BY`. Reproduced with 500 synthetic warehouses,
+  fresh `ANALYZE` statistics, and roughly a third of them stocked with the
+  requested product (the partial-selectivity shape a real catalogue has) — and
+  again with every warehouse stocked, so it is not a selectivity artefact
+  either way. The documented fallback (Risks table) is applied in
+  `select-warehouse.sql`: an `eligible` CTE resolves C-6's `HAVING` first
+  (which warehouse ids can supply every line), then only that small set is
+  joined back to `warehouses` — by primary key, never a sequential scan — and
+  sorted by distance. Condensed captured plan (full JSON logged by
+  `warehouse-selection.explain.integration.spec.ts`):
+
+  ```
+  Limit
+    InitPlan (CTE requested): Function Scan
+    Result
+      Sort  Sort Key: (w.location <-> '...'::geography), w.id
+        Nested Loop
+          Aggregate  Group Key: i.warehouse_id  Filter: (count(*) = $1)
+            InitPlan 2 (returns $1): Aggregate over CTE Scan requested
+            Sort  Sort Key: i.warehouse_id
+              Nested Loop  Join Filter: (i.quantity_available >= r.quantity) AND (i.product_id = r.product_id)
+                Hash Join  Hash Cond: (p.id = r.product_id)
+                  Seq Scan on products p  Filter: is_active
+                  Hash -> CTE Scan requested r
+                Index Scan using idx_inventory_availability on inventory i
+                  Index Cond: (product_id = p.id)
+          Index Scan using warehouses_pkey on warehouses w
+            Index Cond: (id = i.warehouse_id)  Filter: is_active
+  ```
+
+  No node anywhere touches `idx_warehouses_location_gist`, and `warehouses` is
+  reached exactly once, by primary key, for the handful of ids the `eligible`
+  CTE resolved — never a sequential or index scan over the full table. Sorting
+  that small set costs essentially nothing next to probing a spatial index in
+  distance order against a table where most rows fail the join; the planner's
+  choice is the cheaper one, not a missing index or a planner defect. The
+  integration test asserts exactly this shape (no `Seq Scan` on `warehouses`,
+  `warehouses` reached only via `warehouses_pkey`) and accepts a GiST-driven
+  plan as the alternative pass condition, in case a future dataset shape ever
+  favours it.
 - **Yes:** the concurrency harness fires from one process with `Promise.all` and
   its own `DataSource` with `poolSize` 30. TypeORM's default pool of 10 would
   queue 15 of the 25 attempts in the pool rather than on the row lock, and the
