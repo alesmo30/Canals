@@ -85,12 +85,48 @@ schema changes.
 
 ### R0.5 — Domain layer (FROZEN CONTRACT)
 
-- Entities and value objects: `Order`, `OrderItem`, `Payment`, `Shipment`,
-  `Inventory`, `Product`, `Warehouse`, `Customer`, `ShippingAddress`,
-  `Coordinates`, `Money`.
-- `Money` as integer cents + currency. No floats anywhere.
-- The order state machine as explicit code: allowed transitions and a guard that
-  rejects illegal ones.
+**Build a layer only where there is something to put in it.** A domain class for a
+table with no invariants, or a repository that only wraps `findById`, is
+ceremony. The deciding question is: *can this rule be guaranteed in memory?*
+If yes it belongs in the domain; if it needs the database to be correct, it
+belongs in a repository with explicit SQL.
+
+Applying that rule to the ten tables:
+
+| Table | Domain class | Repository | Reason |
+|---|---|---|---|
+| `orders` + `order_items` | ✅ | ✅ | a real state machine |
+| `inventory` | ❌ | ✅ | correctness depends on `FOR UPDATE SKIP LOCKED`; an in-memory `reserve()` would be a lie |
+| `idempotency_keys` | ❌ | ✅ small | own mechanics (insert-first, replay) |
+| `warehouses` | ❌ | ✅ | this is the selection-query repository (P1) |
+| `payments` | ❌ | folded into orders | inserted, never mutated |
+| `shipments` | ❌ | ✅ minimal | its only rule is a `UNIQUE` constraint |
+| `products` | ❌ | ❌ | read inside other queries |
+| `customers` | ❌ | ❌ | existence check only |
+| `inventory_movements` | ❌ | ❌ | written inside the inventory repository |
+
+**Two domain classes and about five repositories — not ten of each.**
+
+Concretely:
+
+- **`Order` (+ `OrderItem`) as a rich domain class**, separate from its TypeORM
+  entity, with a mapper between them. `status` is exposed as a getter only;
+  transitions happen through named methods (`markPaid()`, `markPaymentFailed()`,
+  `confirm()`, `cancel()`). `order.status = 'CONFIRMED'` must not compile.
+- **The state machine as a single readable transition table**, not conditionals
+  scattered across services. This is the one mapper worth writing.
+- **Value objects**: `Money`, `Coordinates`, `ShippingAddress`.
+  - `Money` is integer cents + currency, with `add`/`times` returning `Money`.
+    **No method may return a decimal `number`** — that is what makes float bugs
+    unrepresentable rather than merely discouraged. Mixing currencies must not compile.
+  - `Coordinates` takes **named** `{ latitude, longitude }`, so the
+    `ST_MakePoint(lng, lat)` ordering bug cannot be introduced by accident.
+- **Everything else stays a plain TypeORM entity.** No mapper, no domain class.
+
+Rationale: much of this system's interesting logic lives in SQL by design,
+because concurrency correctness cannot be enforced in application memory (see
+P1). The domain layer's job here is narrower than in a typical DDD application —
+the state machine, money, and the ports below.
 
 ### R0.6 — Port interfaces (FROZEN CONTRACT)
 

@@ -1,6 +1,6 @@
 # SPEC 01 — P0 Foundation: scaffold, frozen contracts and seeded schema
 
-> **Status:** Approved
+> **Status:** Implemented
 > **Depends on:** —
 > **Date:** 2026-09-16
 > **Objective:** Stand up a NestJS repository that builds, boots two entrypoints, migrates a PostGIS schema and seeds it, freezing the domain entities, port interfaces and database schema that every later phase compiles against.
@@ -72,14 +72,38 @@ Created as PostgreSQL enum types, not `varchar` with a CHECK:
 
 `src/domain/**`, plain TypeScript with no `@nestjs/*` and no `typeorm` imports.
 
-Entities and value objects: `Order`, `OrderItem`, `Payment`, `Shipment`,
-`Inventory`, `Product`, `Warehouse`, `Customer`, `ShippingAddress`,
-`Coordinates`, `Money`.
+**Build a layer only where there is something to put in it.** A domain class
+for a table with no invariants is ceremony; if a rule's correctness depends
+on the database (row locking, `SELECT ... FOR UPDATE SKIP LOCKED`), it
+belongs in a repository with explicit SQL, not an in-memory guard pretending
+to be one. Revised from this spec's original 11-entity list down to two, for
+exactly that reason.
 
-`Money` is integer cents plus a currency code. No floating-point money anywhere.
+Two domain classes, not ten:
 
-The order state machine is explicit code: a transition table plus a guard that
-rejects illegal transitions.
+- **`Order` (+ `OrderItem`)** — a rich domain class, separate from its
+  TypeORM entity, with a mapper between them. `status` is exposed as a
+  getter only; transitions happen through named methods (`markPaid()`,
+  `markPaymentFailed()`, `confirm()`, `cancel()`). `order.status =
+  'CONFIRMED'` must not compile.
+- Everything else — `Payment`, `Shipment`, `Inventory`, `Product`,
+  `Warehouse`, `Customer`, `inventory_movements`, `idempotency_keys` —
+  stays a plain TypeORM entity, with no domain mirror and no mapper.
+  `Inventory` specifically: its correctness depends on `SELECT ... FOR
+  UPDATE SKIP LOCKED`, so an in-memory `reserve()` would be a lie about
+  where the real guarantee lives.
+
+Value objects: `Money`, `Coordinates`, `ShippingAddress`.
+
+- `Money` is integer cents plus a currency code — no floating-point money
+  anywhere, and no method may return a decimal `number`. Mixing currencies
+  must not compile.
+- `Coordinates` takes a single named `{ latitude, longitude }` object, not
+  positional arguments, so a `ST_MakePoint(lng, lat)`-style ordering bug
+  cannot be introduced by an accidental argument swap.
+
+The order state machine is explicit code: a transition table plus the named
+`Order` methods above, which reject illegal transitions.
 
 ### Port interfaces, frozen
 
@@ -107,8 +131,11 @@ Shipped alongside them: the injection tokens, and the `ChargeCommand`,
 ### Persistence entities, frozen
 
 `src/infrastructure/database/entities/**`, one `@Entity()` class per table,
-mirroring the migration column for column. These classes carry no business
-rules. Mappers convert between them and the domain entities.
+mirroring the migration column for column, for all 10 tables regardless of
+whether a domain class exists for it. These classes carry no business rules.
+A mapper converts between a persistence entity and its domain class only
+where one exists — today that is `Order`/`OrderItem` alone (see Domain
+layer, frozen); everything else is read and written as the plain entity.
 
 ### Configuration schema
 
@@ -143,12 +170,15 @@ next one starts.
    *Verify:* booting with `DATABASE_URL` unset exits non-zero with a message
    naming the missing variable.
 
-4. **Domain entities and value objects.** `Money`, `Coordinates`,
-   `ShippingAddress`, then the entities. No framework imports.
+4. **Value objects and the `Order`/`OrderItem` domain classes.** `Money`,
+   `Coordinates`, `ShippingAddress`, then `Order` and `OrderItem` — the only
+   two domain classes (see Domain layer, frozen). No framework imports.
    *Verify:* Jest unit tests for `Money` arithmetic, run with no database.
 
-5. **Order state machine.** The transition table and the guard that rejects
-   illegal transitions.
+5. **Order state machine.** The transition table and the named `Order`
+   methods (`markPaid()`, `markPaymentFailed()`, `confirm()`, `cancel()`)
+   that use it to reject illegal transitions. `status` stays a getter —
+   `order.status = 'CONFIRMED'` must not compile.
    *Verify:* Jest unit tests covering one legal transition and one rejected
    transition per terminal state.
 
@@ -173,9 +203,10 @@ next one starts.
    *Verify:* migration runs clean on an empty database, `down` reverts it, and
    `psql` confirms the CHECK constraints are present.
 
-9. **Persistence entities and mappers.** One `@Entity()` class per table under
-   `src/infrastructure/database/entities/**`, plus the mappers to and from the
-   domain entities.
+9. **Persistence entities and the `Order`/`OrderItem` mapper.** One `@Entity()`
+   class per table under `src/infrastructure/database/entities/**` — all 10
+   tables. Plus the mapper to and from the domain classes, needed only for
+   `Order`/`OrderItem`; every other entity is used directly, no mapper.
    *Verify:* a Jest test boots the TypeORM DataSource against the migrated
    database with `synchronize: false` and confirms metadata loads with no
    mismatch.
@@ -213,41 +244,43 @@ next one starts.
 
 ## Acceptance criteria
 
-- [ ] `docker compose up` from a clean clone brings up `postgres`, `migrate`,
+- [x] `docker compose up` from a clean clone brings up `postgres`, `migrate`,
       `seed`, `api` and `worker` with no manual steps.
-- [ ] Migrations run exactly once on a cold start, from the `migrate` service
+- [x] Migrations run exactly once on a cold start, from the `migrate` service
       only.
-- [ ] `npm run migration:revert` reverts the migration on an empty database
+- [x] `npm run migration:revert` reverts the migration on an empty database
       without error.
-- [ ] Running `docker compose up` a second time leaves every table's row count
+- [x] Running `docker compose up` a second time leaves every table's row count
       unchanged.
-- [ ] When the `seed` service exits non-zero, `api` and `worker` do not start and
+- [x] When the `seed` service exits non-zero, `api` and `worker` do not start and
       `docker compose up` terminates naming the failed dependency.
-- [ ] `GET /health` on the api returns 200 and reports the PostgreSQL check as up.
-- [ ] The `worker` container starts, connects to the database, binds no HTTP port
+- [x] `GET /health` on the api returns 200 and reports the PostgreSQL check as up.
+- [x] The `worker` container starts, connects to the database, binds no HTTP port
       and stays up.
-- [ ] `psql` confirms the `postgis` extension is installed.
-- [ ] `psql` confirms `idx_warehouses_location_gist` exists and is a GiST index.
-- [ ] `psql` confirms the CHECK constraints on `inventory.quantity_available`,
+- [x] `psql` confirms the `postgis` extension is installed.
+- [x] `psql` confirms `idx_warehouses_location_gist` exists and is a GiST index.
+- [x] `psql` confirms the CHECK constraints on `inventory.quantity_available`,
       `inventory.quantity_reserved` and `order_items.quantity`.
-- [ ] `SELECT name, latitude, longitude FROM warehouses` returns numeric
+- [x] `SELECT name, latitude, longitude FROM warehouses` returns numeric
       coordinates, or the deviation is recorded in the decisions section.
-- [ ] `UPDATE warehouses SET latitude = 0` is rejected by PostgreSQL, or the
+- [x] `UPDATE warehouses SET latitude = 0` is rejected by PostgreSQL, or the
       deviation is recorded.
-- [ ] Inserting a second `CAPTURED` payment for the same order is rejected by the
+- [x] Inserting a second `CAPTURED` payment for the same order is rejected by the
       partial unique index.
-- [ ] Inserting an `inventory` row with `quantity_available = -1` is rejected.
-- [ ] The seed produces a product fillable by exactly one warehouse, one fillable
+- [x] Inserting an `inventory` row with `quantity_available = -1` is rejected.
+- [x] The seed produces a product fillable by exactly one warehouse, one fillable
       by several with an unambiguous nearest, one fillable by none, and one
       stocked at exactly a requested quantity.
-- [ ] Booting the api with `DATABASE_URL` unset exits non-zero and names the
+- [x] Booting the api with `DATABASE_URL` unset exits non-zero and names the
       missing variable.
-- [ ] A file under `src/domain/` importing `@nestjs/common` fails `npm run lint`.
-- [ ] A file under `src/domain/` importing `typeorm` fails `npm run lint`.
-- [ ] `npm run lint` and `npm run build` pass.
-- [ ] The Jest suite passes, including the `Money` and state machine unit tests
+- [x] A file under `src/domain/` importing `@nestjs/common` fails `npm run lint`.
+- [x] A file under `src/domain/` importing `typeorm` fails `npm run lint`.
+- [x] `order.status = 'CONFIRMED'` fails to compile; `Coordinates.of(40, -74)`
+      (positional args) fails to compile.
+- [x] `npm run lint` and `npm run build` pass.
+- [x] The Jest suite passes, including the `Money` and state machine unit tests
       that run with no database.
-- [ ] `npm run verify` is green end to end.
+- [x] `npm run verify` is green end to end.
 
 ## Decisions
 
@@ -291,6 +324,36 @@ next one starts.
 - **No:** creating the `pgboss` schema in P0's migration. pg-boss creates its own
   tables at boot, and pinning them in a frozen migration would tie the schema to a
   library version.
+- **Yes:** revised R0.5 from 11 domain classes down to two (`Order` +
+  `OrderItem`) mid-step-4, after review. The deciding question: can the rule
+  be guaranteed in memory, or does it need the database? `Inventory` was the
+  clearest case — its correctness depends on `SELECT ... FOR UPDATE SKIP
+  LOCKED`, so a domain-level `reserve()` would assert a guarantee it cannot
+  keep. The six deleted classes (`Customer`, `Product`, `Warehouse`,
+  `Inventory`, `Payment`, `Shipment`) had no invariant that survives that
+  test; they become plain TypeORM entities with no mapper (steps 4, 9).
+- **Yes:** `Coordinates.of()` takes a single `{ latitude, longitude }` object,
+  not positional arguments. Both parameters are `number`, so positional args
+  let `Coordinates.of(lng, lat)` compile silently — the ±90/±180 range checks
+  do not catch a swap within the continental US, since both values are in
+  range for both fields either way.
+- **Yes:** `Order`'s named transition methods (`markPaid()`,
+  `markPaymentFailed()`, `confirm()`, `cancel()`) built in step 5, each
+  checking `order-status.transitions.ts`'s table before mutating. `status`
+  has no public setter, so `order.status = 'CONFIRMED'` already fails to
+  compile (TS2339: no such property) — verified directly with `tsc`, both
+  with and without the regression test's `@ts-expect-error` in place.
+- **Yes:** `PAYMENT_FAILED` and `CANCELLED` both terminal, no transition
+  between them, resolving the tension flagged in step 4 between
+  architectural-requirements.md's diagram (draws `PAYMENT_FAILED ──►
+  CANCELLED`) and three other passages of that same document (the
+  `order_status` enum note, FR-5 phase 3's three settle outcomes, and the
+  reaper/reconciliation logic only ever touching `PENDING_PAYMENT` orders).
+  Flagged in step 4's report; no objection raised before step 5 built on it.
+- **Noted, not yet closed:** `Money`'s "mixing currencies must not compile"
+  is still a runtime guard (`assertSameCurrency` throws), not a type error —
+  that needs a currency-branded type, not attempted. Out of step 5's scope
+  (the order state machine); still open for a later pass.
 
 **Configuration and validation**
 
@@ -330,6 +393,17 @@ next one starts.
   reference-data job, because the two lifecycles are separate. Here the
   `docker compose up` is the deliverable and the four seeded inventory scenarios
   are what make P1 and P6 demonstrable, so the coupling is deliberate.
+- **Yes:** the gate on `seed` (previous decision) was verified live, not just
+  wired — `seed.ts` was temporarily made to throw, `docker compose up` run
+  clean, and `api`/`worker` stayed in `Created` (never started), `seed` in
+  `Exited (1)`, naming the failed dependency exactly as acceptance criterion 5
+  requires. Reverted after confirming.
+- **Yes:** the seed catalogue grew from R0.8's "~8 Apple products" to 15, at
+  the user's request, to cover more of the current lineup (iPhone 16/17
+  generation, not 18, at the user's explicit request; MacBook Air/Pro M3/M4;
+  iPad Air/Pro; AirPods Pro 3/4). R0.8 says "~8", not exactly 8, so this stays
+  within the frozen contract; the four required scenarios were re-verified
+  against the expanded catalogue by SKU, not just by product index.
 - **Yes:** the seed stays invocable as `npm run seed` independently of compose. A
   load that fails for an odd reason can be cleaned up and re-run by hand against
   the running stack, without rebuilding anything.
