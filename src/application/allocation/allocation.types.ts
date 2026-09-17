@@ -8,3 +8,15 @@ export interface OrderLine {
   productId: string;
   quantity: number;
 }
+
+/**
+ * Everything `InventoryService.reserve` needs. `manager` — the caller's
+ * transaction — travels as the method's own first argument, not as a
+ * field here (specs/02-fulfilment-core.md, Decisions: reserve/release/
+ * commit never open a transaction of their own).
+ */
+export interface ReserveCommand {
+  orderId: string;
+  warehouseId: string;
+  lines: OrderLine[];
+}
