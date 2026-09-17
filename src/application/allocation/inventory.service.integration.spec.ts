@@ -22,7 +22,7 @@ import { orderToPersistence } from '../../infrastructure/database/mappers/order.
  * fixtures (randomUUID-scoped), not seed.ts — the CI integration job
  * does not run the seed.
  */
-describe('InventoryService.reserve (integration)', () => {
+describe('InventoryService (integration)', () => {
   const service = new InventoryService();
   let customerId: string;
 
@@ -106,92 +106,214 @@ describe('InventoryService.reserve (integration)', () => {
     });
   }
 
-  it('moves balances, writes RESERVE movements with the resulting balances, and stamps the order', async () => {
-    const orderId = await makeOrder();
-    const productId = await makeProduct();
-    const warehouseId = await makeWarehouse();
-    await setStock(warehouseId, productId, 5);
-
-    await AppDataSource.transaction(async (manager) => {
-      await service.reserve(manager, {
-        orderId,
-        warehouseId,
-        lines: [{ productId, quantity: 3 }],
-      });
-    });
-
-    const inventory = await AppDataSource.getRepository(
-      InventoryOrmEntity,
-    ).findOneByOrFail({ warehouseId, productId });
-    expect(inventory.quantityAvailable).toBe(2);
-    expect(inventory.quantityReserved).toBe(3);
-
-    const movements = await AppDataSource.query<
-      {
-        type: string;
-        quantity_delta: number;
-        available_after: number;
-        reserved_after: number;
-        order_id: string;
-      }[]
-    >(
-      `SELECT type, quantity_delta, available_after, reserved_after, order_id
-       FROM inventory_movements
-       WHERE warehouse_id = $1 AND product_id = $2`,
-      [warehouseId, productId],
+  async function countMovements(
+    warehouseId: string,
+    productId: string,
+    type: string,
+  ): Promise<number> {
+    const rows = await AppDataSource.query<{ count: string }[]>(
+      `SELECT count(*) FROM inventory_movements
+       WHERE warehouse_id = $1 AND product_id = $2 AND type = $3`,
+      [warehouseId, productId, type],
     );
-    expect(movements).toHaveLength(1);
-    expect(movements[0]).toMatchObject({
-      type: 'RESERVE',
-      quantity_delta: -3,
-      available_after: 2,
-      reserved_after: 3,
-      order_id: orderId,
-    });
+    return Number(rows[0].count);
+  }
 
-    const order = await AppDataSource.getRepository(
-      OrderOrmEntity,
-    ).findOneByOrFail({ id: orderId });
-    expect(order.warehouseId).toBe(warehouseId);
-    expect(order.reservationExpiresAt).not.toBeNull();
-    const minutesOut =
-      (order.reservationExpiresAt!.getTime() - Date.now()) / 60_000;
-    expect(minutesOut).toBeGreaterThan(14.5);
-    expect(minutesOut).toBeLessThan(15.5);
-  });
+  describe('reserve', () => {
+    it('moves balances, writes RESERVE movements with the resulting balances, and stamps the order', async () => {
+      const orderId = await makeOrder();
+      const productId = await makeProduct();
+      const warehouseId = await makeWarehouse();
+      await setStock(warehouseId, productId, 5);
 
-  it('raises InsufficientStockError and leaves every balance untouched when the request exceeds what the lock reveals', async () => {
-    const orderId = await makeOrder();
-    const productId = await makeProduct();
-    const warehouseId = await makeWarehouse();
-    await setStock(warehouseId, productId, 2);
-
-    await expect(
-      AppDataSource.transaction(async (manager) => {
+      await AppDataSource.transaction(async (manager) => {
         await service.reserve(manager, {
           orderId,
           warehouseId,
           lines: [{ productId, quantity: 3 }],
         });
-      }),
-    ).rejects.toBeInstanceOf(InsufficientStockError);
+      });
 
-    const inventory = await AppDataSource.getRepository(
-      InventoryOrmEntity,
-    ).findOneByOrFail({ warehouseId, productId });
-    expect(inventory.quantityAvailable).toBe(2);
-    expect(inventory.quantityReserved).toBe(0);
+      const inventory = await AppDataSource.getRepository(
+        InventoryOrmEntity,
+      ).findOneByOrFail({ warehouseId, productId });
+      expect(inventory.quantityAvailable).toBe(2);
+      expect(inventory.quantityReserved).toBe(3);
 
-    const movements = await AppDataSource.query<unknown[]>(
-      `SELECT 1 FROM inventory_movements WHERE warehouse_id = $1 AND product_id = $2`,
-      [warehouseId, productId],
-    );
-    expect(movements).toHaveLength(0);
+      const movements = await AppDataSource.query<
+        {
+          type: string;
+          quantity_delta: number;
+          available_after: number;
+          reserved_after: number;
+          order_id: string;
+        }[]
+      >(
+        `SELECT type, quantity_delta, available_after, reserved_after, order_id
+         FROM inventory_movements
+         WHERE warehouse_id = $1 AND product_id = $2`,
+        [warehouseId, productId],
+      );
+      expect(movements).toHaveLength(1);
+      expect(movements[0]).toMatchObject({
+        type: 'RESERVE',
+        quantity_delta: -3,
+        available_after: 2,
+        reserved_after: 3,
+        order_id: orderId,
+      });
 
-    const order = await AppDataSource.getRepository(
-      OrderOrmEntity,
-    ).findOneByOrFail({ id: orderId });
-    expect(order.warehouseId).toBeNull();
-    expect(order.reservationExpiresAt).toBeNull();
+      const order = await AppDataSource.getRepository(
+        OrderOrmEntity,
+      ).findOneByOrFail({ id: orderId });
+      expect(order.warehouseId).toBe(warehouseId);
+      expect(order.reservationExpiresAt).not.toBeNull();
+      const minutesOut =
+        (order.reservationExpiresAt!.getTime() - Date.now()) / 60_000;
+      expect(minutesOut).toBeGreaterThan(14.5);
+      expect(minutesOut).toBeLessThan(15.5);
+    });
+
+    it('raises InsufficientStockError and leaves every balance untouched when the request exceeds what the lock reveals', async () => {
+      const orderId = await makeOrder();
+      const productId = await makeProduct();
+      const warehouseId = await makeWarehouse();
+      await setStock(warehouseId, productId, 2);
+
+      await expect(
+        AppDataSource.transaction(async (manager) => {
+          await service.reserve(manager, {
+            orderId,
+            warehouseId,
+            lines: [{ productId, quantity: 3 }],
+          });
+        }),
+      ).rejects.toBeInstanceOf(InsufficientStockError);
+
+      const inventory = await AppDataSource.getRepository(
+        InventoryOrmEntity,
+      ).findOneByOrFail({ warehouseId, productId });
+      expect(inventory.quantityAvailable).toBe(2);
+      expect(inventory.quantityReserved).toBe(0);
+
+      const movements = await AppDataSource.query<unknown[]>(
+        `SELECT 1 FROM inventory_movements WHERE warehouse_id = $1 AND product_id = $2`,
+        [warehouseId, productId],
+      );
+      expect(movements).toHaveLength(0);
+
+      const order = await AppDataSource.getRepository(
+        OrderOrmEntity,
+      ).findOneByOrFail({ id: orderId });
+      expect(order.warehouseId).toBeNull();
+      expect(order.reservationExpiresAt).toBeNull();
+    });
+  });
+
+  describe('release and commit', () => {
+    async function reserveOne(
+      orderId: string,
+      warehouseId: string,
+      productId: string,
+      quantity: number,
+    ): Promise<void> {
+      await AppDataSource.transaction(async (manager) => {
+        await service.reserve(manager, {
+          orderId,
+          warehouseId,
+          lines: [{ productId, quantity }],
+        });
+      });
+    }
+
+    it('release is idempotent: calling it twice returns the stock exactly once, and leaves exactly one RELEASE movement', async () => {
+      const orderId = await makeOrder();
+      const productId = await makeProduct();
+      const warehouseId = await makeWarehouse();
+      await setStock(warehouseId, productId, 5);
+      await reserveOne(orderId, warehouseId, productId, 3);
+
+      for (let i = 0; i < 2; i++) {
+        await AppDataSource.transaction(async (manager) => {
+          await service.release(manager, {
+            orderId,
+            warehouseId,
+            productIds: [productId],
+          });
+        });
+      }
+
+      const inventory = await AppDataSource.getRepository(
+        InventoryOrmEntity,
+      ).findOneByOrFail({ warehouseId, productId });
+      expect(inventory.quantityAvailable).toBe(5);
+      expect(inventory.quantityReserved).toBe(0);
+      expect(await countMovements(warehouseId, productId, 'RELEASE')).toBe(1);
+    });
+
+    it('commit is idempotent: calling it twice clears the reservation exactly once, and leaves exactly one COMMIT movement', async () => {
+      const orderId = await makeOrder();
+      const productId = await makeProduct();
+      const warehouseId = await makeWarehouse();
+      await setStock(warehouseId, productId, 5);
+      await reserveOne(orderId, warehouseId, productId, 3);
+
+      for (let i = 0; i < 2; i++) {
+        await AppDataSource.transaction(async (manager) => {
+          await service.commit(manager, {
+            orderId,
+            warehouseId,
+            productIds: [productId],
+          });
+        });
+      }
+
+      const inventory = await AppDataSource.getRepository(
+        InventoryOrmEntity,
+      ).findOneByOrFail({ warehouseId, productId });
+      // commit never touches quantity_available (specs/02-fulfilment-core.md,
+      // Decisions) — it stays at the post-reserve value, 5 - 3 = 2.
+      expect(inventory.quantityAvailable).toBe(2);
+      expect(inventory.quantityReserved).toBe(0);
+      expect(await countMovements(warehouseId, productId, 'COMMIT')).toBe(1);
+    });
+
+    it('release after commit is a no-op: writes nothing and changes no balance', async () => {
+      const orderId = await makeOrder();
+      const productId = await makeProduct();
+      const warehouseId = await makeWarehouse();
+      await setStock(warehouseId, productId, 5);
+      await reserveOne(orderId, warehouseId, productId, 3);
+
+      await AppDataSource.transaction(async (manager) => {
+        await service.commit(manager, {
+          orderId,
+          warehouseId,
+          productIds: [productId],
+        });
+      });
+
+      const afterCommit = await AppDataSource.getRepository(
+        InventoryOrmEntity,
+      ).findOneByOrFail({ warehouseId, productId });
+
+      await AppDataSource.transaction(async (manager) => {
+        await service.release(manager, {
+          orderId,
+          warehouseId,
+          productIds: [productId],
+        });
+      });
+
+      const afterRelease = await AppDataSource.getRepository(
+        InventoryOrmEntity,
+      ).findOneByOrFail({ warehouseId, productId });
+      expect(afterRelease.quantityAvailable).toBe(
+        afterCommit.quantityAvailable,
+      );
+      expect(afterRelease.quantityReserved).toBe(afterCommit.quantityReserved);
+      expect(await countMovements(warehouseId, productId, 'RELEASE')).toBe(0);
+      expect(await countMovements(warehouseId, productId, 'COMMIT')).toBe(1);
+    });
   });
 });

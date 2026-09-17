@@ -2,7 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 
 import { InsufficientStockError } from './errors';
-import { ReserveCommand } from './allocation.types';
+import { ReleaseCommand, ReserveCommand } from './allocation.types';
+import {
+  insertMovement,
+  InventoryRow,
+  isLockTimeout,
+  lockInventoryRows,
+  updateInventoryBalances,
+} from './helpers/inventory.helpers';
 
 /**
  * specs/02-fulfilment-core.md, Decisions: a named constant, not an
@@ -12,16 +19,9 @@ import { ReserveCommand } from './allocation.types';
  */
 export const RESERVATION_TTL_MINUTES = 15;
 
-/** specs/02-fulfilment-core.md, Decisions: same reasoning as the TTL above — a named constant, not an environment variable. */
-const LOCK_TIMEOUT = '3s';
-
-/** Postgres error code for "lock_timeout" firing while waiting on a row lock (55P03, lock_not_available). */
-const LOCK_TIMEOUT_ERROR_CODE = '55P03';
-
-interface InventoryRow {
-  product_id: string;
-  quantity_available: number;
-  quantity_reserved: number;
+interface LatestMovementRow {
+  type: 'RESERVE' | 'RELEASE' | 'COMMIT' | 'RESTOCK' | 'ADJUST';
+  quantity_delta: number;
 }
 
 /**
@@ -39,20 +39,12 @@ export class InventoryService {
   ): Promise<void> {
     const productIds = command.lines.map((line) => line.productId);
 
-    await manager.query(`SET LOCAL lock_timeout = '${LOCK_TIMEOUT}'`);
-
-    let rows: InventoryRow[];
+    let byProductId: Map<string, InventoryRow>;
     try {
-      // ORDER BY product_id, not the order the caller's lines arrived in
-      // — otherwise two orders reserving the same products in reverse
-      // order could deadlock each other (Decisions).
-      rows = await manager.query(
-        `SELECT product_id, quantity_available, quantity_reserved
-         FROM inventory
-         WHERE warehouse_id = $1 AND product_id = ANY($2::uuid[])
-         ORDER BY product_id
-         FOR UPDATE`,
-        [command.warehouseId, productIds],
+      byProductId = await lockInventoryRows(
+        manager,
+        command.warehouseId,
+        productIds,
       );
     } catch (error: unknown) {
       if (isLockTimeout(error)) {
@@ -60,8 +52,6 @@ export class InventoryService {
       }
       throw error;
     }
-
-    const byProductId = new Map(rows.map((row) => [row.product_id, row]));
 
     // Re-verify availability under the lock — the candidate came from a
     // selection query run before this transaction opened, so stock may
@@ -85,29 +75,25 @@ export class InventoryService {
       const availableAfter = row.quantity_available - line.quantity;
       const reservedAfter = row.quantity_reserved + line.quantity;
 
-      await manager.query(
-        `UPDATE inventory
-         SET quantity_available = $3, quantity_reserved = $4, version = version + 1, updated_at = now()
-         WHERE warehouse_id = $1 AND product_id = $2`,
-        [command.warehouseId, line.productId, availableAfter, reservedAfter],
-      );
+      await updateInventoryBalances(manager, {
+        warehouseId: command.warehouseId,
+        productId: line.productId,
+        availableAfter,
+        reservedAfter,
+      });
 
       // Append-only ledger: order_id is always populated on rows P1
       // writes (Decisions) — a movement that cannot name its order
       // answers none of the questions the ledger exists for.
-      await manager.query(
-        `INSERT INTO inventory_movements
-           (warehouse_id, product_id, order_id, type, quantity_delta, available_after, reserved_after)
-         VALUES ($1, $2, $3, 'RESERVE', $4, $5, $6)`,
-        [
-          command.warehouseId,
-          line.productId,
-          command.orderId,
-          -line.quantity,
-          availableAfter,
-          reservedAfter,
-        ],
-      );
+      await insertMovement(manager, {
+        warehouseId: command.warehouseId,
+        productId: line.productId,
+        orderId: command.orderId,
+        type: 'RESERVE',
+        quantityDelta: -line.quantity,
+        availableAfter,
+        reservedAfter,
+      });
     }
 
     await manager.query(
@@ -117,13 +103,120 @@ export class InventoryService {
       [command.warehouseId, RESERVATION_TTL_MINUTES, command.orderId],
     );
   }
-}
 
-function isLockTimeout(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === LOCK_TIMEOUT_ERROR_CODE
-  );
+  /**
+   * Returns the reservation's stock, per line: `quantity_available` up,
+   * `quantity_reserved` down, by the amount that line's `RESERVE`
+   * movement originally moved. Idempotent: no-ops a line whose latest
+   * movement is already `RELEASE` or `COMMIT` (specs/02-fulfilment-core.md,
+   * Decisions — checking only "any RELEASE exists" would miss the
+   * release-after-commit case).
+   */
+  async release(
+    manager: EntityManager,
+    command: ReleaseCommand,
+  ): Promise<void> {
+    const byProductId = await lockInventoryRows(
+      manager,
+      command.warehouseId,
+      command.productIds,
+    );
+
+    for (const productId of command.productIds) {
+      const latestRows: LatestMovementRow[] = await manager.query(
+        `SELECT type, quantity_delta
+         FROM inventory_movements
+         WHERE order_id = $1 AND product_id = $2
+         ORDER BY id DESC
+         LIMIT 1`,
+        [command.orderId, productId],
+      );
+      const latest = latestRows[0];
+
+      // Nothing was ever reserved for this line, or the reservation
+      // already reached a terminal state: a no-op either way.
+      if (!latest || latest.type === 'RELEASE' || latest.type === 'COMMIT') {
+        continue;
+      }
+
+      const row = byProductId.get(productId);
+      if (!row) continue; // defensive: a RESERVE movement implies the inventory row exists
+
+      const reservedQuantity = Math.abs(latest.quantity_delta);
+      const availableAfter = row.quantity_available + reservedQuantity;
+      const reservedAfter = row.quantity_reserved - reservedQuantity;
+
+      await updateInventoryBalances(manager, {
+        warehouseId: command.warehouseId,
+        productId,
+        availableAfter,
+        reservedAfter,
+      });
+
+      await insertMovement(manager, {
+        warehouseId: command.warehouseId,
+        productId,
+        orderId: command.orderId,
+        type: 'RELEASE',
+        quantityDelta: reservedQuantity,
+        availableAfter,
+        reservedAfter,
+      });
+    }
+  }
+
+  /**
+   * Ends the reservation, per line, without touching
+   * `quantity_available` — the units left the available pool when they
+   * were reserved; confirming the sale only ends the reservation
+   * (specs/02-fulfilment-core.md, Decisions). Idempotent, same rule as
+   * `release`: no-ops a line whose latest movement is already `RELEASE`
+   * or `COMMIT`.
+   */
+  async commit(manager: EntityManager, command: ReleaseCommand): Promise<void> {
+    const byProductId = await lockInventoryRows(
+      manager,
+      command.warehouseId,
+      command.productIds,
+    );
+
+    for (const productId of command.productIds) {
+      const latestRows: LatestMovementRow[] = await manager.query(
+        `SELECT type, quantity_delta
+         FROM inventory_movements
+         WHERE order_id = $1 AND product_id = $2
+         ORDER BY id DESC
+         LIMIT 1`,
+        [command.orderId, productId],
+      );
+      const latest = latestRows[0];
+
+      if (!latest || latest.type === 'RELEASE' || latest.type === 'COMMIT') {
+        continue;
+      }
+
+      const row = byProductId.get(productId);
+      if (!row) continue; // defensive: a RESERVE movement implies the inventory row exists
+
+      const reservedQuantity = Math.abs(latest.quantity_delta);
+      const reservedAfter = row.quantity_reserved - reservedQuantity;
+
+      await updateInventoryBalances(manager, {
+        warehouseId: command.warehouseId,
+        productId,
+        availableAfter: row.quantity_available, // unchanged — the sale was already out of the available pool
+        reservedAfter,
+      });
+
+      await insertMovement(manager, {
+        warehouseId: command.warehouseId,
+        productId,
+        orderId: command.orderId,
+        type: 'COMMIT',
+        quantityDelta: 0,
+        availableAfter: row.quantity_available,
+        reservedAfter,
+      });
+    }
+  }
 }
