@@ -1,6 +1,6 @@
 # SPEC 02 — P1 Fulfilment Core: warehouse selection and stock reservation
 
-> **Status:** Approved
+> **Status:** Implemented
 > **Depends on:** SPEC 01
 > **Date:** 2026-09-17
 > **Objective:** Pick, in one SQL statement, the nearest warehouse that can supply every line of an order, and reserve its stock inside a short transaction that no amount of concurrency can make oversell.
@@ -264,62 +264,62 @@ onward are verified against the running compose stack on `localhost:5432`.
 
 ## Acceptance criteria
 
-- [ ] For the seeded data and a New York shipping point, the selection query
+- [x] For the seeded data and a New York shipping point, the selection query
       returns Newark first, and its `distance_meters` matches a hand-computed
       `ST_Distance` against the known city coordinates.
-- [ ] An order for 3 units of the MacBook Pro 16" returns **no candidates**,
+- [x] An order for 3 units of the MacBook Pro 16" returns **no candidates**,
       although the five warehouses hold 10 units between them (C-6).
-- [ ] An order whose lines are spread across two warehouses, each holding only
+- [x] An order whose lines are spread across two warehouses, each holding only
       part of them, returns no candidates.
-- [ ] Setting a warehouse `is_active = false` removes it from the results;
+- [x] Setting a warehouse `is_active = false` removes it from the results;
       setting a product `is_active = false` removes every warehouse for orders
       containing it.
-- [ ] Two warehouses at an identical distance are returned in `warehouse.id`
+- [x] Two warehouses at an identical distance are returned in `warehouse.id`
       order, and repeated runs return the same order.
-- [ ] The query returns at most 3 candidates.
-- [ ] `EXPLAIN` on the selection statement, with several hundred warehouses and
+- [x] The query returns at most 3 candidates.
+- [x] `EXPLAIN` on the selection statement, with several hundred warehouses and
       fresh `ANALYZE` statistics, shows `Order By:` inside
       `Index Scan using idx_warehouses_location_gist` — or the deviation is
       recorded in the decisions section with its plan and its reason.
-- [ ] The selection statement is a single statement, contains no string
+- [x] The selection statement is a single statement, contains no string
       concatenation, and is identical regardless of the number of order lines.
-- [ ] `reserve` moves `quantity_available` down and `quantity_reserved` up by
+- [x] `reserve` moves `quantity_available` down and `quantity_reserved` up by
       exactly the requested quantity, and writes one `RESERVE` movement per line
       whose `available_after` / `reserved_after` match the row's post-state.
-- [ ] `reserve` sets `orders.warehouse_id` and
+- [x] `reserve` sets `orders.warehouse_id` and
       `orders.reservation_expires_at = now() + RESERVATION_TTL_MINUTES`.
-- [ ] `reserve` raises `InsufficientStockError` and leaves every balance
+- [x] `reserve` raises `InsufficientStockError` and leaves every balance
       untouched when the request exceeds what the lock reveals.
-- [ ] The locking `SELECT` carries `FOR UPDATE` with `ORDER BY product_id`, and
+- [x] The locking `SELECT` carries `FOR UPDATE` with `ORDER BY product_id`, and
       the transaction sets `lock_timeout` to 3 seconds.
-- [ ] Calling `release` twice for the same order returns the stock exactly once
+- [x] Calling `release` twice for the same order returns the stock exactly once
       and leaves exactly one `RELEASE` movement per line.
-- [ ] Calling `commit` twice clears the reservation exactly once and leaves
+- [x] Calling `commit` twice clears the reservation exactly once and leaves
       exactly one `COMMIT` movement per line.
-- [ ] `release` after a `commit` for the same order writes nothing and changes no
+- [x] `release` after a `commit` for the same order writes nothing and changes no
       balance.
-- [ ] `commit` leaves `quantity_available` unchanged.
-- [ ] When the first candidate's stock disappears between selection and
+- [x] `commit` leaves `quantity_available` unchanged.
+- [x] When the first candidate's stock disappears between selection and
       reservation, the use case reserves against the second candidate, and no
       row written by the failed attempt survives.
-- [ ] With every candidate unable to supply, the use case raises
+- [x] With every candidate unable to supply, the use case raises
       `NoFulfilmentPossibleError` naming the unsatisfiable product ids, after at
       most 3 attempts.
-- [ ] `npm run concurrency-check` reports exactly N successes and 20 failures for
+- [x] `npm run concurrency-check` reports exactly N successes and 20 failures for
       N = 5, ends with `quantity_available = 0` and `quantity_reserved = 0`, and
       never N + 1.
-- [ ] The same run with `-- 50` reports exactly 50 successes and 20 failures.
-- [ ] No `CHECK` constraint violation appears in the PostgreSQL logs during the
+- [x] The same run with `-- 50` reports exactly 50 successes and 20 failures.
+- [x] No `CHECK` constraint violation appears in the PostgreSQL logs during the
       harness run.
-- [ ] `sql/verify-ledger.sql` returns zero rows after the harness, and returns
+- [x] `sql/verify-ledger.sql` returns zero rows after the harness, and returns
       exactly the tampered row after a manual `UPDATE inventory`.
-- [ ] No `UPDATE` or `DELETE` statement against `inventory_movements` exists
+- [x] No `UPDATE` or `DELETE` statement against `inventory_movements` exists
       anywhere in `src/`.
-- [ ] A file under `src/application/allocation/` importing `axios` fails
+- [x] A file under `src/application/allocation/` importing `axios` fails
       `npm run lint`.
-- [ ] No HTTP client is imported by any file reachable from `reserve`,
+- [x] No HTTP client is imported by any file reachable from `reserve`,
       `release`, `commit` or `AllocateInventoryUseCase`.
-- [ ] `npm run lint`, `npm run build` and `npm run verify` all pass.
+- [x] `npm run lint`, `npm run build` and `npm run verify` all pass.
 
 ## Decisions
 
