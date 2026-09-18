@@ -7,12 +7,14 @@ import { AppConfig } from '../infrastructure/config/env.schema';
 import { ConfigModule } from '../infrastructure/config/config.module';
 import { pinoOptions } from '../infrastructure/logging/pino.config';
 import { HttpPaymentGateway } from '../infrastructure/payments/http-payment-gateway';
+import { CachingGeocodingProvider } from '../infrastructure/geocoding/caching-geocoding.provider';
+import { StaticGeocodingProvider } from '../infrastructure/geocoding/static-geocoding.provider';
+import { GeoapifyGeocodingProvider } from '../infrastructure/geocoding/geoapify-geocoding.provider';
 import { PERSISTENCE_ENTITIES } from '../infrastructure/database/persistence-entities';
 import {
   PaymentGateway,
   PAYMENT_GATEWAY,
 } from '../domain/ports/payment-gateway';
-import { Coordinates } from '../domain/value-objects/coordinates';
 import {
   EventPublisher,
   EVENT_PUBLISHER,
@@ -41,15 +43,6 @@ const noOpEventPublisher: EventPublisher = {
   },
 };
 
-/** Throws if actually invoked: a fake geocode would be silently wrong, not merely absent. Real implementation is P2's job. */
-const notImplementedGeocodingProvider: GeocodingProvider = {
-  geocode(): Promise<Coordinates> {
-    return Promise.reject(
-      new Error('GeocodingProvider has no implementation yet (P2).'),
-    );
-  },
-};
-
 @Module({
   imports: [
     ConfigModule,
@@ -73,7 +66,27 @@ const notImplementedGeocodingProvider: GeocodingProvider = {
   ],
   providers: [
     { provide: EVENT_PUBLISHER, useValue: noOpEventPublisher },
-    { provide: GEOCODING_PROVIDER, useValue: notImplementedGeocodingProvider },
+    {
+      provide: GEOCODING_PROVIDER,
+      inject: [ConfigService],
+      useFactory: (
+        configService: ConfigService<AppConfig, true>,
+      ): GeocodingProvider => {
+        // R2.7 (phases/02-external-adapters.md): the active adapter is
+        // chosen once, here, from the environment variable — no
+        // `if (driver === ...)` anywhere else in application code.
+        const driver = configService.get('GEOCODING_DRIVER', {
+          infer: true,
+        });
+        const delegate: GeocodingProvider =
+          driver === 'geoapify'
+            ? new GeoapifyGeocodingProvider({
+                apiKey: requireGeoapifyApiKey(configService),
+              })
+            : new StaticGeocodingProvider();
+        return new CachingGeocodingProvider(delegate);
+      },
+    },
     {
       provide: PAYMENT_GATEWAY,
       inject: [ConfigService],
@@ -94,3 +107,20 @@ const notImplementedGeocodingProvider: GeocodingProvider = {
   ],
 })
 export class SharedModule {}
+
+/**
+ * env.schema.ts's Zod refinement already refuses to boot when
+ * GEOCODING_DRIVER=geoapify and GEOAPIFY_API_KEY is unset — this is a
+ * defensive fallback, never reachable through normal configuration.
+ */
+function requireGeoapifyApiKey(
+  configService: ConfigService<AppConfig, true>,
+): string {
+  const apiKey = configService.get('GEOAPIFY_API_KEY', { infer: true });
+  if (!apiKey) {
+    throw new Error(
+      'GEOAPIFY_API_KEY is required when GEOCODING_DRIVER=geoapify.',
+    );
+  }
+  return apiKey;
+}

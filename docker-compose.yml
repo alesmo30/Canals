@@ -71,7 +71,11 @@ services:
       DATABASE_URL: postgres://canals:canals@postgres:5432/canals
       PAYMENTS_URL: http://payments-mock:4000
       OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
-      GEOCODING_DRIVER: static # set to `geoapify` + GEOAPIFY_API_KEY for the real one (P2)
+      # Switching to Geoapify is two lines in a git-ignored .env:
+      # GEOCODING_DRIVER=geoapify
+      # GEOAPIFY_API_KEY=<your key>
+      GEOCODING_DRIVER: ${GEOCODING_DRIVER:-static}
+      GEOAPIFY_API_KEY: ${GEOAPIFY_API_KEY:-}
     depends_on:
       seed: { condition: service_completed_successfully }
       payments-mock: { condition: service_healthy }
