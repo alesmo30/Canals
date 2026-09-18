@@ -53,12 +53,15 @@ function buildCommand(card: TestCard): ChargeCommand {
   };
 }
 
-function formatLine(
-  card: TestCard,
-  result: ChargeResult,
-  elapsedMs: number,
-  matches: boolean,
-): string {
+interface FormatLineParams {
+  card: TestCard;
+  result: ChargeResult;
+  elapsedMs: number;
+  matches: boolean;
+}
+
+function formatLine(params: FormatLineParams): string {
+  const { card, result, elapsedMs, matches } = params;
   const outcome = `${result.status}${result.failureCode ? `/${result.failureCode}` : ''}`;
   return (
     `${matches ? 'OK  ' : 'FAIL'} card=...${card.cardNumber.slice(-4)} outcome=${outcome} ` +
@@ -89,7 +92,7 @@ async function main(): Promise<void> {
       result.failureCode === card.expectedFailureCode;
     allMatched = allMatched && matches;
 
-    console.log(formatLine(card, result, elapsedMs, matches));
+    console.log(formatLine({ card, result, elapsedMs, matches }));
   }
 
   if (!allMatched) {

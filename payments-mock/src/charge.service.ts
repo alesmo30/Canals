@@ -37,6 +37,13 @@ interface PendingCharge {
   promise: Promise<ChargeResult>;
 }
 
+interface ChargeAttempt {
+  idempotencyKey: string;
+  hash: string;
+  last4: string;
+  body: ChargeRequestBody;
+}
+
 /**
  * SPEC 03: the mock's whole state machine — an in-memory `Map` of stored
  * charges, a second `Map` of in-flight promises for "a second request with
@@ -83,7 +90,7 @@ export class ChargeService {
         : IDEMPOTENCY_KEY_REUSED;
     }
 
-    const promise = this.process(idempotencyKey, hash, last4, body);
+    const promise = this.process({ idempotencyKey, hash, last4, body });
     this.pending.set(idempotencyKey, { requestHash: hash, promise });
     try {
       return await promise;
@@ -92,14 +99,11 @@ export class ChargeService {
     }
   }
 
-  private async process(
-    idempotencyKey: string,
-    hash: string,
-    last4: string,
-    body: ChargeRequestBody,
-  ): Promise<ChargeResult> {
+  private async process(attempt: ChargeAttempt): Promise<ChargeResult> {
+    const { idempotencyKey, hash, last4, body } = attempt;
+
     if (last4 === CARD_TIMEOUT_LAST4) {
-      return this.processCard0004(idempotencyKey, hash, last4, body);
+      return this.processCard0004(attempt);
     }
 
     // Every other card replays its stored response for a repeated key —
@@ -120,7 +124,7 @@ export class ChargeService {
     if (last4 === CARD_DECLINED_LAST4) {
       return {
         kind: 'charged',
-        record: this.store(idempotencyKey, hash, last4, body, 'declined'),
+        record: this.store(attempt, 'declined'),
       };
     }
 
@@ -129,7 +133,7 @@ export class ChargeService {
     );
     return {
       kind: 'charged',
-      record: this.store(idempotencyKey, hash, last4, body, 'approved'),
+      record: this.store(attempt, 'approved'),
     };
   }
 
@@ -144,15 +148,10 @@ export class ChargeService {
    * what was recorded — a same-key-different-body request against `0004`
    * still ends in `422`, just after paying the delay first.
    */
-  private async processCard0004(
-    idempotencyKey: string,
-    hash: string,
-    last4: string,
-    body: ChargeRequestBody,
-  ): Promise<ChargeResult> {
+  private async processCard0004(attempt: ChargeAttempt): Promise<ChargeResult> {
+    const { idempotencyKey, hash } = attempt;
     const record =
-      this.records.get(idempotencyKey) ??
-      this.store(idempotencyKey, hash, last4, body, 'approved');
+      this.records.get(idempotencyKey) ?? this.store(attempt, 'approved');
     await this.delay(this.card0004DelayMs);
     if (record.requestHash !== hash) {
       return IDEMPOTENCY_KEY_REUSED;
@@ -161,12 +160,10 @@ export class ChargeService {
   }
 
   private store(
-    idempotencyKey: string,
-    hash: string,
-    last4: string,
-    body: ChargeRequestBody,
+    attempt: ChargeAttempt,
     status: 'approved' | 'declined',
   ): ChargeRecord {
+    const { idempotencyKey, hash, last4, body } = attempt;
     const record: ChargeRecord = {
       id: `ch_${randomUUID()}`,
       idempotencyKey,
