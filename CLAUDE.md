@@ -39,5 +39,6 @@ npm run lint / build            # rm -rf dist first if a stale build is confusin
 npm run test:unit               # no DB needed
 npm run test:integration        # needs a migrated Postgres reachable
 npm run concurrency-check       # -- 50 for N=50; default N=5, resets its own fixture each run
-npm run verify                  # lint + build + unit + integration + e2e + verify:db + concurrency-check
+npm run payments-check          # needs payments-mock reachable (docker compose up); ~7s, dominated by card 0004's timeout
+npm run verify                  # lint + build + unit + integration + e2e + verify:db + concurrency-check + payments-check
 ```

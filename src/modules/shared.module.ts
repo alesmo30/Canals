@@ -6,9 +6,9 @@ import { LoggerModule } from 'nestjs-pino';
 import { AppConfig } from '../infrastructure/config/env.schema';
 import { ConfigModule } from '../infrastructure/config/config.module';
 import { pinoOptions } from '../infrastructure/logging/pino.config';
+import { HttpPaymentGateway } from '../infrastructure/payments/http-payment-gateway';
 import { PERSISTENCE_ENTITIES } from '../infrastructure/database/persistence-entities';
 import {
-  ChargeResult,
   PaymentGateway,
   PAYMENT_GATEWAY,
 } from '../domain/ports/payment-gateway';
@@ -50,20 +50,6 @@ const notImplementedGeocodingProvider: GeocodingProvider = {
   },
 };
 
-/** Throws if actually invoked: a fake charge would be silently wrong, not merely absent. Real implementation is P2's job. */
-const notImplementedPaymentGateway: PaymentGateway = {
-  charge(): Promise<ChargeResult> {
-    return Promise.reject(
-      new Error('PaymentGateway has no implementation yet (P2).'),
-    );
-  },
-  getStatus(): Promise<ChargeResult> {
-    return Promise.reject(
-      new Error('PaymentGateway has no implementation yet (P2).'),
-    );
-  },
-};
-
 @Module({
   imports: [
     ConfigModule,
@@ -88,7 +74,16 @@ const notImplementedPaymentGateway: PaymentGateway = {
   providers: [
     { provide: EVENT_PUBLISHER, useValue: noOpEventPublisher },
     { provide: GEOCODING_PROVIDER, useValue: notImplementedGeocodingProvider },
-    { provide: PAYMENT_GATEWAY, useValue: notImplementedPaymentGateway },
+    {
+      provide: PAYMENT_GATEWAY,
+      inject: [ConfigService],
+      useFactory: (
+        configService: ConfigService<AppConfig, true>,
+      ): PaymentGateway =>
+        new HttpPaymentGateway({
+          baseUrl: configService.get('PAYMENTS_URL', { infer: true }),
+        }),
+    },
   ],
   exports: [
     LoggerModule,
