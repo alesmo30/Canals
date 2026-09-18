@@ -10,3 +10,16 @@ export class InsufficientStockError extends Error {
     this.name = 'InsufficientStockError';
   }
 }
+
+/**
+ * specs/02-fulfilment-core.md — raised by `AllocateInventoryUseCase` when
+ * no candidate warehouse qualifies, or every attempt is exhausted.
+ * Carries the unsatisfiable product ids, which P4's 422 response will
+ * need.
+ */
+export class NoFulfilmentPossibleError extends Error {
+  constructor(public readonly productIds: string[]) {
+    super(`No fulfilment possible for product ids: ${productIds.join(', ')}`);
+    this.name = 'NoFulfilmentPossibleError';
+  }
+}

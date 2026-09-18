@@ -1,3 +1,5 @@
+import { EntityManager } from 'typeorm';
+
 /**
  * specs/02-fulfilment-core.md — TypeScript contracts shared across the
  * selection query, `InventoryService` and `AllocateInventoryUseCase`.
@@ -34,3 +36,24 @@ export interface ReserveCommand {
 export type ReleaseCommand = Omit<ReserveCommand, 'lines'> & {
   productIds: string[];
 };
+
+/**
+ * What `AllocateInventoryUseCase`'s `onBeforeReserve` callback gets, run
+ * inside each attempt's transaction before `reserve` — P1 inserts a mock
+ * order through it, P4 will insert the real one
+ * (specs/02-fulfilment-core.md, Scope). `orderId` is generated once by
+ * the use case, before the first attempt, and reused across attempts
+ * (Decisions: a failed attempt rolls its whole transaction back, so
+ * reusing one id across retries is safe, and keeps the id stable for
+ * whichever caller — P4's idempotency key — is tracking it outside the
+ * failover loop).
+ */
+export interface OnBeforeReserveParams {
+  orderId: string;
+  warehouseId: string;
+}
+
+export type OnBeforeReserve = (
+  manager: EntityManager,
+  params: OnBeforeReserveParams,
+) => Promise<void>;
