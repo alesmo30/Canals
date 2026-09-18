@@ -68,4 +68,44 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // specs/02-fulfilment-core.md (Scope, R1.5, Decisions): reserve/release/
+    // commit and the failover loop run inside a database transaction and
+    // must never make a network call while holding row locks. The barrier
+    // goes up before P4 brings a payment gateway into the codebase.
+    files: ['src/application/allocation/**/*.ts', 'src/infrastructure/database/repositories/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'axios',
+              message: 'Reservation/allocation code must stay network-free: no HTTP clients while holding row locks.',
+            },
+            {
+              name: 'node-fetch',
+              message: 'Reservation/allocation code must stay network-free: no HTTP clients while holding row locks.',
+            },
+            {
+              name: 'undici',
+              message: 'Reservation/allocation code must stay network-free: no HTTP clients while holding row locks.',
+            },
+            {
+              name: '@nestjs/axios',
+              message: 'Reservation/allocation code must stay network-free: no HTTP clients while holding row locks.',
+            },
+            {
+              name: 'http',
+              message: 'Reservation/allocation code must stay network-free: no HTTP clients while holding row locks.',
+            },
+            {
+              name: 'https',
+              message: 'Reservation/allocation code must stay network-free: no HTTP clients while holding row locks.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

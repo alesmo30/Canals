@@ -12,6 +12,16 @@ import { AppDataSource } from './data-source';
  * migration does for the same reason.
  */
 
+// P1's fixed customer (specs/02-fulfilment-core.md, Scope + Decisions):
+// exists so an `orders` row can be inserted without inventing a customer
+// per test. Hardcoded UUID, ON CONFLICT DO NOTHING like every other
+// seeded row. P4 reuses it for its demo.
+const CUSTOMER = {
+  id: 'c0000000-0000-0000-0000-000000000001',
+  email: 'fixed.customer@example.com',
+  fullName: 'Fixed Test Customer',
+};
+
 const WAREHOUSES = [
   {
     id: 'a0000000-0000-0000-0000-000000000001',
@@ -191,6 +201,13 @@ const INVENTORY: Record<number, Record<number, number>> = {
 async function seed(): Promise<void> {
   await AppDataSource.initialize();
 
+  await AppDataSource.query(
+    `INSERT INTO customers (id, email, full_name)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (id) DO NOTHING`,
+    [CUSTOMER.id, CUSTOMER.email, CUSTOMER.fullName],
+  );
+
   for (const w of WAREHOUSES) {
     await AppDataSource.query(
       `INSERT INTO warehouses (id, name, address, location, is_active)
@@ -234,7 +251,7 @@ async function seed(): Promise<void> {
   }
 
   console.log(
-    `Seeded ${WAREHOUSES.length} warehouses, ${PRODUCTS.length} products, ` +
+    `Seeded 1 customer, ${WAREHOUSES.length} warehouses, ${PRODUCTS.length} products, ` +
       `${Object.values(INVENTORY).reduce((n, byProduct) => n + Object.keys(byProduct).length, 0)} inventory rows.`,
   );
 
