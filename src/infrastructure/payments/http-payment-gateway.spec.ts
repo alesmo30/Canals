@@ -2,6 +2,7 @@ import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import { ChargeCommand } from '../../domain/ports/payment-gateway';
+import { CircuitBreaker } from '../http/circuit-breaker';
 import { HttpPaymentGateway } from './http-payment-gateway';
 
 interface FakeServer {
@@ -414,4 +415,38 @@ describe('HttpPaymentGateway — shared breaker', () => {
       }
     },
   );
+
+  it('never opens the breaker on declines: ten consecutive 402s leave it CLOSED', async () => {
+    const server = await startFakeServer(
+      jsonHandler(402, {
+        id: 'ch_declined',
+        status: 'declined',
+        declineCode: 'card_declined',
+      }),
+    );
+    const breaker = new CircuitBreaker({ name: 'payments' });
+    const gateway = new HttpPaymentGateway({
+      baseUrl: server.url,
+      timeoutMs: 50,
+      retryPolicy: { baseDelayMs: 0 },
+      breaker,
+    });
+
+    try {
+      for (let i = 0; i < 10; i++) {
+        const result = await gateway.charge(
+          buildCommand({ idempotencyKey: `order:declined:${i}` }),
+        );
+        expect(result).toMatchObject({
+          status: 'DECLINED',
+          failureCode: 'CARD_DECLINED',
+        });
+      }
+
+      expect(breaker.state).toBe('CLOSED');
+      expect(server.requestCount()).toBe(10);
+    } finally {
+      await server.close();
+    }
+  });
 });
