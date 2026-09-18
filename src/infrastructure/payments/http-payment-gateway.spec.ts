@@ -13,6 +13,7 @@ interface FakeServer {
 
 function startFakeServer(
   handler: (req: IncomingMessage, res: ServerResponse) => void,
+  port = 0,
 ): Promise<FakeServer> {
   return new Promise((resolve) => {
     const keys: (string | undefined)[] = [];
@@ -20,7 +21,7 @@ function startFakeServer(
       keys.push(req.headers['idempotency-key'] as string | undefined);
       handler(req, res);
     });
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(port, '127.0.0.1', () => {
       const { port } = server.address() as AddressInfo;
       resolve({
         url: `http://127.0.0.1:${port}`,
@@ -257,4 +258,160 @@ describe('HttpPaymentGateway.charge()', () => {
       new Set(['order:abc:attempt:1']),
     );
   });
+});
+
+describe('HttpPaymentGateway.getStatus()', () => {
+  let server: FakeServer | undefined;
+
+  afterEach(async () => {
+    await server?.close();
+    server = undefined;
+  });
+
+  it('maps an approved charge to CAPTURED', async () => {
+    server = await startFakeServer(
+      jsonHandler(200, {
+        id: 'ch_abc',
+        idempotencyKey: 'order:status:1',
+        status: 'approved',
+        amountCents: 9_900,
+        currency: 'USD',
+        cardLast4: '4242',
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    const gateway = new HttpPaymentGateway({
+      baseUrl: server.url,
+      timeoutMs: 50,
+      retryPolicy: { baseDelayMs: 0 },
+    });
+
+    const result = await gateway.getStatus('order:status:1');
+
+    expect(result).toMatchObject({
+      status: 'CAPTURED',
+      providerPaymentId: 'ch_abc',
+      cardLast4: '4242',
+      cardBrand: null,
+      failureCode: null,
+    });
+  });
+
+  it('maps a declined charge to DECLINED', async () => {
+    server = await startFakeServer(
+      jsonHandler(200, {
+        id: 'ch_declined',
+        idempotencyKey: 'order:status:2',
+        status: 'declined',
+        cardLast4: '0002',
+      }),
+    );
+    const gateway = new HttpPaymentGateway({
+      baseUrl: server.url,
+      timeoutMs: 50,
+      retryPolicy: { baseDelayMs: 0 },
+    });
+
+    const result = await gateway.getStatus('order:status:2');
+
+    expect(result).toMatchObject({
+      status: 'DECLINED',
+      providerPaymentId: 'ch_declined',
+      cardLast4: '0002',
+    });
+  });
+
+  it('maps a 404 to FAILED/NOT_FOUND', async () => {
+    server = await startFakeServer(jsonHandler(404, { error: 'not_found' }));
+    const gateway = new HttpPaymentGateway({
+      baseUrl: server.url,
+      timeoutMs: 50,
+      retryPolicy: { baseDelayMs: 0 },
+    });
+
+    const result = await gateway.getStatus('order:status:missing');
+
+    expect(result).toMatchObject({
+      status: 'FAILED',
+      failureCode: 'NOT_FOUND',
+      providerPaymentId: null,
+    });
+  });
+
+  it('never rejects on a provider failure', async () => {
+    server = await startFakeServer(
+      jsonHandler(500, { error: 'provider_error' }),
+    );
+    const gateway = new HttpPaymentGateway({
+      baseUrl: server.url,
+      timeoutMs: 50,
+      retryPolicy: { baseDelayMs: 0 },
+    });
+
+    await expect(gateway.getStatus('order:status:err')).resolves.toMatchObject({
+      status: 'UNKNOWN',
+      failureCode: 'PROVIDER_ERROR',
+    });
+  });
+});
+
+describe('HttpPaymentGateway — shared breaker', () => {
+  it(
+    'opens across charge() calls against a closed port, then rejects the next call outright, ' +
+      'never reaching a server listening again on the same port',
+    async () => {
+      const initialServer = await startFakeServer(jsonHandler(200, {}));
+      const port = Number(new URL(initialServer.url).port);
+      await initialServer.close();
+
+      const gateway = new HttpPaymentGateway({
+        baseUrl: `http://127.0.0.1:${port}`,
+        timeoutMs: 50,
+        retryPolicy: { baseDelayMs: 0 },
+      });
+
+      // Call 1: 3 attempts, all ECONNREFUSED -> 3 consecutive failures.
+      // Breaker stays CLOSED (default threshold 5).
+      const first = await gateway.charge(
+        buildCommand({ idempotencyKey: 'order:breaker:1' }),
+      );
+      expect(first.failureCode).toBe('CONNECTION_REFUSED');
+
+      // Call 2: attempt 1 -> failure #4 (still CLOSED). Attempt 2 -> failure
+      // #5, the breaker opens right here. Attempt 3 (still this same call)
+      // hits the now-open breaker and is rejected before any network call.
+      const second = await gateway.charge(
+        buildCommand({ idempotencyKey: 'order:breaker:2' }),
+      );
+      expect(second).toMatchObject({
+        status: 'UNKNOWN',
+        failureCode: 'CIRCUIT_OPEN',
+      });
+
+      // A server is listening on the same port again, but the breaker is
+      // already OPEN: call 3 must be rejected before it ever reaches it.
+      const revivedServer = await startFakeServer(
+        jsonHandler(200, {
+          id: 'ch_x',
+          status: 'approved',
+          cardLast4: '4242',
+          createdAt: new Date().toISOString(),
+        }),
+        port,
+      );
+      try {
+        const third = await gateway.charge(
+          buildCommand({ idempotencyKey: 'order:breaker:3' }),
+        );
+
+        expect(third).toMatchObject({
+          status: 'UNKNOWN',
+          failureCode: 'CIRCUIT_OPEN',
+        });
+        expect(revivedServer.requestCount()).toBe(0);
+      } finally {
+        await revivedServer.close();
+      }
+    },
+  );
 });
