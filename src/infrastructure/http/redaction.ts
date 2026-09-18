@@ -44,10 +44,36 @@ function redactValue(value: unknown, seen: WeakMap<object, unknown>): unknown {
   if (value instanceof Date) {
     return new Date(value.getTime());
   }
+  if (value instanceof Error) {
+    return redactError(value, seen);
+  }
   if (Array.isArray(value)) {
     return redactArray(value, seen);
   }
   return redactObject(value as Record<string, unknown>, seen);
+}
+
+/**
+ * `name`, `message` and `stack` are non-enumerable on a plain `Error`, so a
+ * generic `Object.entries` walk (as `redactObject` does) would silently
+ * drop them. Pulled out explicitly, then the same by-key/by-value rules
+ * apply to `message` and `stack` as to any other string — an error message
+ * can carry a PAN pasted from a request body.
+ */
+function redactError(
+  error: Error,
+  seen: WeakMap<object, unknown>,
+): Record<string, unknown> {
+  const clone: Record<string, unknown> = {
+    name: error.name,
+    message: redactString(error.message),
+    stack: error.stack === undefined ? undefined : redactString(error.stack),
+  };
+  seen.set(error, clone);
+  for (const [key, fieldValue] of Object.entries(error)) {
+    clone[key] = redactValue(fieldValue, seen);
+  }
+  return clone;
 }
 
 function redactArray(

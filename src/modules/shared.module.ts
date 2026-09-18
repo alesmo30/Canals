@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { LoggerModule } from 'nestjs-pino';
 
 import { AppConfig } from '../infrastructure/config/env.schema';
 import { ConfigModule } from '../infrastructure/config/config.module';
+import { pinoOptions } from '../infrastructure/logging/pino.config';
 import { PERSISTENCE_ENTITIES } from '../infrastructure/database/persistence-entities';
 import {
   ChargeResult,
@@ -65,6 +67,10 @@ const notImplementedPaymentGateway: PaymentGateway = {
 @Module({
   imports: [
     ConfigModule,
+    // SPEC 03 step 2: every log object — Nest's own logger, pino-http's
+    // request/response logging, and future adapters — runs through
+    // redact() before it is serialised (pinoOptions).
+    LoggerModule.forRoot({ pinoHttp: pinoOptions }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService<AppConfig, true>) => ({
@@ -85,6 +91,7 @@ const notImplementedPaymentGateway: PaymentGateway = {
     { provide: PAYMENT_GATEWAY, useValue: notImplementedPaymentGateway },
   ],
   exports: [
+    LoggerModule,
     TypeOrmModule,
     EVENT_PUBLISHER,
     GEOCODING_PROVIDER,

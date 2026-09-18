@@ -95,4 +95,14 @@ describe('redact', () => {
     expect(result.cardNumber).toBe('************4242');
     expect(result.self).toBe(result);
   });
+
+  it('redacts a PAN inside an Error message, keeping the message readable', () => {
+    const input = new Error('charge for 4242424242424242 failed');
+
+    const result = redact(input) as unknown as Record<string, unknown>;
+
+    expect(result.name).toBe('Error');
+    expect(result.message).toBe('charge for ************4242 failed');
+    expect(typeof result.stack).toBe('string');
+  });
 });
