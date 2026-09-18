@@ -48,6 +48,24 @@ insert `order_items` **with price snapshots** → commit.
 call `PaymentGateway.charge` (P2) with a stable idempotency key. Persist the
 attempt in `payments` regardless of outcome.
 
+**The charge idempotency key (fixed by SPEC 03, built here):**
+
+- Format: `order:<orderId>:attempt:<n>`, e.g. `order:8f3c…e21a:attempt:1`
+  (~53 chars, fits `payments.idempotency_key varchar(128)`).
+- `<n>` is `payments.attempt` — a **business-level payment attempt** (one
+  `payments` row), **not** an HTTP retry. The P2 adapter's up-to-3 HTTP retries
+  all reuse the same key, which is exactly what stops the provider charging twice.
+- Today `<n>` is always `1`: `DECLINED` is terminal (`PAYMENT_FAILED`), so nothing
+  creates a second attempt. The column exists so a future "pay with another card"
+  gets a fresh key without breaking anything.
+- The helper building it lives in `src/application/orders/charge-idempotency-key.ts`
+  (pure function, unit-tested). Not in `src/infrastructure/payments/` — the
+  application layer must not import infrastructure (`references/layering.md`).
+- The key is persisted in `payments.idempotency_key` **before** calling `charge`,
+  so P6's reconciliation reads it back from the row and never rebuilds it.
+- A different string per HTTP retry, or a random key, would turn one timeout into
+  several real charges.
+
 **Phase 3 — Settle (short transaction):**
 
 | Outcome | Action |
@@ -105,6 +123,7 @@ without opening psql.
 ```
 src/application/orders/create-order.*
 src/application/orders/idempotency.*
+src/application/orders/charge-idempotency-key.ts
 src/infrastructure/http/controllers/orders.controller.ts
 src/infrastructure/http/dto/**
 src/infrastructure/http/filters/problem-details.filter.ts
@@ -125,6 +144,27 @@ src/modules/api.module.ts
 8. A successful order produces exactly one shipment, asynchronously, visible within ~1 s.
 9. No card number in any response, log or trace.
 10. Grafana shows one trace: request → geocode → selection → reserve → charge → settle → jobs.
+
+## Handoff from SPEC 03 (P2 — external adapters)
+
+Decided while specifying P2; P4 must honour them:
+
+- **Charge idempotency key** — format and ownership in R4.3, Phase 2 above.
+- **`charge()` never throws on provider failure.** Only two outcomes are
+  definitive: `CAPTURED` (2xx) and `DECLINED` (402). Everything else — 5xx after
+  retries, timeout, network error, circuit breaker open — comes back as
+  `UNKNOWN`. P4 maps `UNKNOWN` → `502` and keeps the reservation (AC 4 and 5).
+- **`ChargeResult.failureCode` carries the exact cause** on `UNKNOWN`:
+  `TIMEOUT`, `PROVIDER_ERROR`, `CONNECTION_REFUSED`, `CIRCUIT_OPEN`. The last two
+  mean the request provably never reached the provider. P4 keeps `502` + reservation
+  intact for all of them today; the code is there so a later refinement (release
+  immediately and answer `503` + `Retry-After`) needs no adapter change.
+- **A `502` is "payment outcome unknown", not "order failed".** The order exists in
+  `PENDING_PAYMENT` and P6's reconciliation will settle it. The `502` problem body
+  must include the `orderId` and say the payment is pending confirmation, so the
+  client checks `GET /orders/:id` instead of re-posting with a new
+  `Idempotency-Key` — which would create a second order and, if the first charge
+  did go through, charge the customer twice.
 
 ## Out of scope
 

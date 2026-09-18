@@ -1,0 +1,37 @@
+{
+  "name": "payments-mock",
+  "version": "0.0.1",
+  "description": "SPEC 03: standalone deterministic payment provider mock for local dev and CI. Never deployed for real.",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "node": "22.x"
+  },
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "dev": "ts-node src/main.ts",
+    "test": "jest",
+    "format": "prettier --write \"src/**/*.ts\""
+  },
+  "dependencies": {
+    "fastify": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.0.0",
+    "jest": "^30.0.0",
+    "prettier": "^3.9.8",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    }
+  }
+}

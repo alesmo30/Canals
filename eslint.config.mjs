@@ -108,4 +108,22 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // SPEC 03 step 2: nestjs-pino + redact() is a guarantee only if
+    // nothing can write around it. Excluded: tests (assert on captured
+    // output directly, not stdout) and the two CLI scripts that print
+    // progress and never touch card data. The two bootstrap `catch`
+    // handlers in main.ts/main.worker.ts keep console.error behind an
+    // inline eslint-disable, since the logger may not exist yet if boot
+    // itself failed.
+    files: ['src/**/*.ts'],
+    ignores: [
+      '**/*.spec.ts',
+      'src/infrastructure/database/seed.ts',
+      'src/infrastructure/database/verify-schema.ts',
+    ],
+    rules: {
+      'no-console': 'error',
+    },
+  },
 );
