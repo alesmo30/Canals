@@ -176,5 +176,6 @@ npm run seed                    # seed script (manual/local only — CI doesn't 
 npm run lint / build            # rm -rf dist first if a stale build is confusing lint's glob
 npm run test:unit               # no DB needed
 npm run test:integration        # needs a migrated Postgres reachable
-npm run verify                  # lint + build + unit + integration + e2e + verify:db
+npm run concurrency-check       # -- 50 for N=50; default N=5, resets its own fixture each run
+npm run verify                  # lint + build + unit + integration + e2e + verify:db + concurrency-check
 ```
