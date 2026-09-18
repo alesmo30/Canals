@@ -33,6 +33,17 @@ jobs:
       - name: Run unit tests
         run: npm run test:unit
 
+      # payments-mock is its own package (own package.json/node_modules,
+      # spec 03 Decisions: "its own package") — installed and tested here
+      # independently of the root install above.
+      - name: Install payments-mock dependencies
+        run: npm ci
+        working-directory: payments-mock
+
+      - name: Run payments-mock tests
+        run: npm test
+        working-directory: payments-mock
+
   # Integration + e2e specs open a real connection to a migrated Postgres
   # (data-source.integration.spec.ts, order.mapper.integration.spec.ts,
   # app.e2e-spec.ts) — required by design, not just recommended, so they
