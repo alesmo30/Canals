@@ -163,6 +163,140 @@ Exactly `N` succeed, exactly 20 fail with `InsufficientStockError`, never
 `N`) gives the same shape of result: the script resets its own fixture's
 stock and movements before each run.
 
+## P2 — External adapters: payment gateway, geocoding
+
+specs/03-external-adapters.md. `HttpPaymentGateway` against a standalone
+`payments-mock` service, a deterministic `StaticGeocodingProvider`
+(default) and an opt-in `GeoapifyGeocodingProvider`, both behind
+`retry.ts`'s full-jitter backoff and `circuit-breaker.ts`'s per-provider
+breaker. Every provider failure ends in a typed, reproducible outcome
+within a bounded time, and no card number ever reaches a log.
+
+### `payments-mock` — the four test cards
+
+Outcomes are keyed on the card's last four digits. All four numbers are
+Luhn-valid, so P4's DTO can validate them without breaking this table.
+
+| Card | Outcome | `HttpPaymentGateway` result |
+|---|---|---|
+| `4242424242424242` | `200` approved, 200–600 ms | `CAPTURED` |
+| `4000000000000002` | `402` declined | `DECLINED` / `CARD_DECLINED` |
+| `4000000000090003` | `500` provider error | `UNKNOWN` / `PROVIDER_ERROR` |
+| `4000000000080004` | hangs ~30 s (recorded as approved) | `UNKNOWN` / `TIMEOUT` |
+
+Try them directly once `docker compose up` has `payments-mock` healthy
+(port `4000`):
+
+```bash
+curl -X POST http://localhost:4000/charge \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: demo-1' \
+  -d '{"cardNumber":"4242424242424242","amountCents":9900,"currency":"USD","description":"Demo"}'
+```
+
+Or run all four through the real adapter — retries, timeouts and
+`describeCard()` included:
+
+```bash
+npm run payments-check
+```
+
+Each card there gets its own `HttpPaymentGateway` (and so its own
+breaker): 0003 and 0004 each exhaust all 3 attempts on their own, and
+sharing one breaker across both in a single run would open it mid-way
+through 0004, turning its `TIMEOUT` into `CIRCUIT_OPEN` — not what the
+script is there to prove. A real client sharing one gateway across
+orders (P4's `POST /orders`, or the walkthrough below) does **not** get
+this isolation, which is the point of the next section.
+
+### The breaker across repeated failures — `docker stop payments-mock`
+
+`HttpPaymentGateway.charge()` and `getStatus()` share one
+`CircuitBreaker`, counting each failed **attempt**, not each call. With
+`payments-mock` stopped, two orders using card `0003` or `0004` — three
+failed attempts each — are enough to cross `BREAKER_FAILURE_THRESHOLD`
+(5) partway through the second one. That is correct, load-shedding
+behaviour, not a bug: retrying against a provider that is provably down
+wastes ~7 s per order for nothing. It is proven by
+`circuit-breaker.spec.ts` (a fake clock, no real 30 s wait) and by
+`http-payment-gateway.spec.ts`'s "shared breaker" test, which reproduces
+exactly this sequence against a real, stopped `node:http` server.
+
+To see the mock itself go down and come back:
+
+```bash
+docker compose up -d
+curl http://localhost:4000/health          # {"status":"ok"}
+
+docker stop payments-mock
+curl http://localhost:4000/charge -X POST \
+  -H 'Content-Type: application/json' -H 'Idempotency-Key: demo-2' \
+  -d '{"cardNumber":"4242424242424242","amountCents":9900,"currency":"USD","description":"Demo"}'
+# curl: (7) Failed to connect — the port stopped accepting connections.
+# Through HttpPaymentGateway this is CONNECTION_REFUSED, retried, and
+# (per the ordering above) can open the breaker for every card for 30 s.
+
+docker start payments-mock
+# ~5s for the healthcheck; a probe after the breaker's 30 s window
+# succeeds and closes it again, no api/worker restart needed.
+```
+
+**Demo order matters.** Run the happy-path cards (`4242…`, `4000…0002`)
+first; save `0003`/`0004` for last, or wait 30 s between them. Two
+consecutive `0003` orders alone are enough to open the breaker for
+every card, including the ones that would otherwise succeed.
+
+### Geocoding: static by default, Geoapify opt-in
+
+`GEOCODING_DRIVER` (default `static`) picks the adapter in
+`SharedModule`; nothing else in the app branches on it. Either driver is
+wrapped in an in-memory LRU cache (10,000 entries, no TTL, keyed by the
+normalised address).
+
+**`StaticGeocodingProvider`** — the default, and what `docker compose up`
+uses with no `.env` at all. A table of 32 US cities plus a deterministic
+`sha256` jitter of up to ±0.05° (~5 km) — enough to keep the nearest-
+warehouse choice verifiable by hand, since warehouses sit hundreds of km
+apart. It logs a boot warning: **it is for demo and test use only.**
+
+Supported cities (`city, STATE`; `Portland` needs a state — both `OR`
+and `ME` are in the table, deliberately, to prove the ambiguity rule):
+
+```
+Newark, NJ · Los Angeles, CA · Dallas, TX · Chicago, IL · Miami, FL
+New York, NY · Philadelphia, PA · San Diego, CA · Houston, TX
+Milwaukee, WI · Orlando, FL · Seattle, WA · Denver, CO
+Portland, OR · Portland, ME · Boston, MA · Atlanta, GA · Phoenix, AZ
+San Francisco, CA · Austin, TX · San Antonio, TX · Charlotte, NC
+Columbus, OH · Indianapolis, IN · San Jose, CA · Detroit, MI
+Nashville, TN · Memphis, TN · Baltimore, MD · Las Vegas, NV
+Minneapolis, MN · New Orleans, LA
+```
+
+Limits: any other city, an ambiguous city with no state, or a non-US
+country throws `GeocodingFailedError('UNKNOWN_ADDRESS')` — there is no
+fallback point, since an arbitrary guess would persist a fake location
+as if it were real. `state` is optional in `ShippingAddress`, so with no
+state a city resolves only when its name is unique in the table.
+
+**`GeoapifyGeocodingProvider`** — opt-in, for a real deployment. Two
+lines in a git-ignored `.env` switch to it:
+
+```bash
+GEOCODING_DRIVER=geoapify
+GEOAPIFY_API_KEY=<your key>
+```
+
+`docker compose up` picks both up automatically; `GEOCODING_DRIVER`
+unset (or any value other than `geoapify`) keeps the static default, and
+the app refuses to boot if `geoapify` is set without a key (Zod
+refinement in `env.schema.ts`). A bad or expired key answers `401`/`403`
+— logged, never retried, and never counted by the breaker, since a
+misconfigured key is not an outage. Geoapify's free tier is 3,000
+credits/day; the cache absorbs repeat lookups for the same address.
+
+Geocoding powered by [Geoapify](https://www.geoapify.com/).
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
