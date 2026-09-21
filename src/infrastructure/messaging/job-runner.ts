@@ -1,3 +1,5 @@
+import { unlinkSync, writeFileSync } from 'node:fs';
+
 import {
   Inject,
   Injectable,
@@ -14,6 +16,7 @@ import { JobBody } from './job-envelope';
 import { AppConfig } from '../config/env.schema';
 import { correlationStorage } from '../observability/correlation';
 import { registerDlqGauge } from '../observability/dlq-gauge';
+import { WORKER_READINESS_FILE_PATH } from '../health/worker-readiness';
 import { JOB_HANDLERS, JobHandler } from '../../application/jobs/job-handler';
 
 /**
@@ -129,9 +132,20 @@ export class JobRunner implements OnApplicationShutdown {
       );
       this.logger.log({ queue: handler.queue, pollingIntervalSeconds });
     }
+
+    // Boot is only "done" once every queue has a registered worker and the
+    // gauge is live — worker-healthcheck.js (R3.8) treats this file's mere
+    // existence as "ready".
+    writeFileSync(WORKER_READINESS_FILE_PATH, '');
   }
 
   async onApplicationShutdown(): Promise<void> {
+    try {
+      unlinkSync(WORKER_READINESS_FILE_PATH);
+    } catch {
+      // Already gone, or never written (shutdown before start() finished)
+      // — either way there is nothing left to clean up.
+    }
     await this.boss.stop({
       graceful: true,
       timeout: GRACEFUL_SHUTDOWN_TIMEOUT_MS,

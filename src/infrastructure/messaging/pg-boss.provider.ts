@@ -1,9 +1,11 @@
-import { Provider } from '@nestjs/common';
+import { Logger, Provider } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PgBoss } from 'pg-boss';
 
 import { AppConfig } from '../config/env.schema';
 import { setupQueues } from './queue-setup';
+
+const logger = new Logger('PgBoss');
 
 /** DI token — PgBoss is a third-party class, keyed by a symbol like the domain ports. */
 export const PG_BOSS = Symbol('PgBoss');
@@ -43,6 +45,16 @@ export function pgBossProvider(role: PgBossRole): Provider {
         supervise: isWorker,
         schedule: isWorker,
         useListenNotify: isWorker,
+      });
+      // PgBoss extends EventEmitter and emits 'error' whenever its pool
+      // loses a connection (e.g. Postgres restarting) — Node's own
+      // EventEmitter convention throws an unhandled exception and crashes
+      // the whole process if 'error' has no listener. Found the hard way:
+      // GET /health/ready during `docker compose stop postgres` killed the
+      // api outright instead of degrading, which R3.1 explicitly forbids
+      // ("/health returns 200 while postgres is stopped").
+      boss.on('error', (error: unknown) => {
+        logger.error(error instanceof Error ? error.message : String(error));
       });
       await boss.start();
       await setupQueues(boss);

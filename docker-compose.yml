@@ -87,6 +87,15 @@ services:
       DATABASE_URL: postgres://canals:canals@postgres:5432/canals
       PAYMENTS_URL: http://payments-mock:4000
       OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+    # SPEC 04 step 9 (R3.3/R3.8): the worker has no HTTP port, so
+    # `docker compose ps` health comes from a command instead — the same
+    # worker-healthcheck.js that checks the readiness file JobRunner
+    # writes at boot/removes on shutdown, plus a real database ping.
+    healthcheck:
+      test: ['CMD', 'node', 'dist/infrastructure/health/worker-healthcheck.js']
+      interval: 5s
+      retries: 10
+      start_period: 10s
     depends_on:
       seed: { condition: service_completed_successfully }
 
