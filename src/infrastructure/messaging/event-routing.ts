@@ -1,4 +1,16 @@
 /**
+ * SPEC 04 Data model, "Event contract" — the only event P3 defines. P4
+ * publishes it; P3 routes and consumes it. Deliberately minimal: handlers
+ * read whatever else they need from the database, so a job running a
+ * minute late sees current state rather than a stale copy (Decisions,
+ * "The event contract").
+ */
+export interface OrderConfirmedPayload {
+  readonly orderId: string;
+  readonly occurredAt: string;
+}
+
+/**
  * SPEC 04 Decisions, "Queue topology and fan-out": routing lives in code, not
  * in pg-boss's own `publish`/`subscribe` table (see that section for why —
  * a `subscribe()` never called by a fresh worker would enqueue nothing and
