@@ -172,6 +172,26 @@ describe('AllocateInventoryUseCase (integration)', () => {
     expect(nearInventory.quantityAvailable).toBe(5); // rolled back to its pre-attempt value
   });
 
+  it('returns the winning warehouse name and distance alongside its id', async () => {
+    const productId = await makeProduct();
+    const warehouseId = await makeWarehouse(40.72, -74.0);
+    await setStock(warehouseId, productId, 5);
+    const warehouse = await AppDataSource.getRepository(
+      WarehouseOrmEntity,
+    ).findOneByOrFail({ id: warehouseId });
+
+    const result: AllocationResult = await useCase.execute({
+      shippingLocation,
+      lines: [{ productId, quantity: 1 }],
+      onBeforeReserve: insertMockOrder(),
+    });
+
+    expect(result.warehouseId).toBe(warehouseId);
+    expect(result.name).toBe(warehouse.name);
+    expect(typeof result.distanceMeters).toBe('number');
+    expect(result.distanceMeters).toBeGreaterThanOrEqual(0);
+  });
+
   it('raises NoFulfilmentPossibleError naming every requested product id when no candidate qualifies', async () => {
     const productId = await makeProduct();
     // No warehouse stocks this product at all — selection returns nothing.

@@ -18,6 +18,8 @@ export interface AllocateInventoryCommand {
 export interface AllocationResult {
   orderId: string;
   warehouseId: string;
+  name: string;
+  distanceMeters: number;
 }
 
 /**
@@ -70,7 +72,12 @@ export class AllocateInventoryUseCase {
           });
         });
 
-        return { orderId, warehouseId: candidate.warehouseId };
+        return {
+          orderId,
+          warehouseId: candidate.warehouseId,
+          name: candidate.name,
+          distanceMeters: candidate.distanceMeters,
+        };
       } catch (error: unknown) {
         if (error instanceof InsufficientStockError) {
           error.productIds.forEach((productId) =>
