@@ -5,6 +5,11 @@ import { ChargeCommand } from '../../domain/ports/payment-gateway';
 import { CircuitBreaker } from '../http/circuit-breaker';
 import { HttpPaymentGateway } from './http-payment-gateway';
 
+// 50ms was too tight on loaded CI runners and caused spurious retries on
+// tests that expect exactly one request; the hanging-handler test below
+// deliberately keeps its own short timeout since it must trip TIMEOUT.
+const TEST_TIMEOUT_MS = 1_000;
+
 interface FakeServer {
   url: string;
   requestCount: () => number;
@@ -80,7 +85,7 @@ describe('HttpPaymentGateway.charge()', () => {
     );
     const gateway = new HttpPaymentGateway({
       baseUrl: server.url,
-      timeoutMs: 50,
+      timeoutMs: TEST_TIMEOUT_MS,
       retryPolicy: { baseDelayMs: 0 },
     });
 
@@ -106,7 +111,7 @@ describe('HttpPaymentGateway.charge()', () => {
     );
     const gateway = new HttpPaymentGateway({
       baseUrl: server.url,
-      timeoutMs: 50,
+      timeoutMs: TEST_TIMEOUT_MS,
       retryPolicy: { baseDelayMs: 0 },
     });
 
@@ -126,7 +131,7 @@ describe('HttpPaymentGateway.charge()', () => {
     );
     const gateway = new HttpPaymentGateway({
       baseUrl: server.url,
-      timeoutMs: 50,
+      timeoutMs: TEST_TIMEOUT_MS,
       retryPolicy: { baseDelayMs: 0 },
     });
     const command = buildCommand({
@@ -174,7 +179,7 @@ describe('HttpPaymentGateway.charge()', () => {
 
     const gateway = new HttpPaymentGateway({
       baseUrl: url,
-      timeoutMs: 50,
+      timeoutMs: TEST_TIMEOUT_MS,
       retryPolicy: { baseDelayMs: 0 },
     });
 
@@ -193,7 +198,7 @@ describe('HttpPaymentGateway.charge()', () => {
     );
     const gateway = new HttpPaymentGateway({
       baseUrl: server.url,
-      timeoutMs: 50,
+      timeoutMs: TEST_TIMEOUT_MS,
       retryPolicy: { baseDelayMs: 0 },
     });
 
@@ -212,7 +217,7 @@ describe('HttpPaymentGateway.charge()', () => {
     );
     const gateway = new HttpPaymentGateway({
       baseUrl: server.url,
-      timeoutMs: 50,
+      timeoutMs: TEST_TIMEOUT_MS,
       retryPolicy: { baseDelayMs: 0 },
     });
 
@@ -230,7 +235,7 @@ describe('HttpPaymentGateway.charge()', () => {
     );
     const gateway = new HttpPaymentGateway({
       baseUrl: server.url,
-      timeoutMs: 50,
+      timeoutMs: TEST_TIMEOUT_MS,
       retryPolicy: { baseDelayMs: 0 },
     });
 
@@ -247,7 +252,7 @@ describe('HttpPaymentGateway.charge()', () => {
     );
     const gateway = new HttpPaymentGateway({
       baseUrl: server.url,
-      timeoutMs: 50,
+      timeoutMs: TEST_TIMEOUT_MS,
       retryPolicy: { baseDelayMs: 0 },
     });
 
@@ -283,7 +288,7 @@ describe('HttpPaymentGateway.getStatus()', () => {
     );
     const gateway = new HttpPaymentGateway({
       baseUrl: server.url,
-      timeoutMs: 50,
+      timeoutMs: TEST_TIMEOUT_MS,
       retryPolicy: { baseDelayMs: 0 },
     });
 
@@ -309,7 +314,7 @@ describe('HttpPaymentGateway.getStatus()', () => {
     );
     const gateway = new HttpPaymentGateway({
       baseUrl: server.url,
-      timeoutMs: 50,
+      timeoutMs: TEST_TIMEOUT_MS,
       retryPolicy: { baseDelayMs: 0 },
     });
 
@@ -326,7 +331,7 @@ describe('HttpPaymentGateway.getStatus()', () => {
     server = await startFakeServer(jsonHandler(404, { error: 'not_found' }));
     const gateway = new HttpPaymentGateway({
       baseUrl: server.url,
-      timeoutMs: 50,
+      timeoutMs: TEST_TIMEOUT_MS,
       retryPolicy: { baseDelayMs: 0 },
     });
 
@@ -345,7 +350,7 @@ describe('HttpPaymentGateway.getStatus()', () => {
     );
     const gateway = new HttpPaymentGateway({
       baseUrl: server.url,
-      timeoutMs: 50,
+      timeoutMs: TEST_TIMEOUT_MS,
       retryPolicy: { baseDelayMs: 0 },
     });
 
@@ -367,7 +372,7 @@ describe('HttpPaymentGateway — shared breaker', () => {
 
       const gateway = new HttpPaymentGateway({
         baseUrl: `http://127.0.0.1:${port}`,
-        timeoutMs: 50,
+        timeoutMs: TEST_TIMEOUT_MS,
         retryPolicy: { baseDelayMs: 0 },
       });
 
@@ -427,7 +432,7 @@ describe('HttpPaymentGateway — shared breaker', () => {
     const breaker = new CircuitBreaker({ name: 'payments' });
     const gateway = new HttpPaymentGateway({
       baseUrl: server.url,
-      timeoutMs: 50,
+      timeoutMs: TEST_TIMEOUT_MS,
       retryPolicy: { baseDelayMs: 0 },
       breaker,
     });
