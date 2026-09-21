@@ -1,23 +1,23 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 import { JobHandler } from './job-handler';
+import { ShipmentService } from './shipment.service';
 import { OrderConfirmedPayload } from '../../infrastructure/messaging/event-routing';
 
 /**
- * SPEC 04 step 4 — placeholder: logs and returns. Step 5 replaces the body
- * with the real `INSERT INTO shipments ... ON CONFLICT (order_id) DO
- * NOTHING` via `ShipmentService` (Scope's queue/handler table).
+ * SPEC 04 Scope: creates the shipment via `ShipmentService`
+ * (`infrastructure.md` §3's own worked example for this exact handler).
+ * A thrown error (order not found, null `warehouse_id`) is left to
+ * pg-boss's retry/dead-letter mechanism (step 6) — this handler does not
+ * catch it.
  */
 @Injectable()
 export class ShipmentCreateHandler implements JobHandler<OrderConfirmedPayload> {
   readonly queue = 'shipment.create';
-  private readonly logger = new Logger(ShipmentCreateHandler.name);
 
-  handle(payload: OrderConfirmedPayload): Promise<void> {
-    this.logger.log({
-      queue: this.queue,
-      orderId: payload.orderId,
-    });
-    return Promise.resolve();
+  constructor(private readonly shipments: ShipmentService) {}
+
+  async handle({ orderId }: OrderConfirmedPayload): Promise<void> {
+    await this.shipments.createForOrder(orderId);
   }
 }

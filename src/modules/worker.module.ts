@@ -4,6 +4,7 @@ import { SharedModule } from './shared.module';
 import { JobRunner } from '../infrastructure/messaging/job-runner';
 import { JOB_HANDLERS } from '../application/jobs/job-handler';
 import { ShipmentCreateHandler } from '../application/jobs/shipment-create.handler';
+import { ShipmentService } from '../application/jobs/shipment.service';
 import { CustomerNotifyHandler } from '../application/jobs/customer-notify.handler';
 import { AnalyticsRecordHandler } from '../application/jobs/analytics-record.handler';
 
@@ -17,6 +18,7 @@ import { AnalyticsRecordHandler } from '../application/jobs/analytics-record.han
   imports: [SharedModule.register('worker')],
   providers: [
     JobRunner,
+    ShipmentService,
     ShipmentCreateHandler,
     CustomerNotifyHandler,
     AnalyticsRecordHandler,
