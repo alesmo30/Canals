@@ -2,6 +2,7 @@ import { DynamicModule, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LoggerModule } from 'nestjs-pino';
+import type { PgBoss } from 'pg-boss';
 
 import { AppConfig } from '../infrastructure/config/env.schema';
 import { ConfigModule } from '../infrastructure/config/config.module';
@@ -10,6 +11,7 @@ import { HttpPaymentGateway } from '../infrastructure/payments/http-payment-gate
 import { CachingGeocodingProvider } from '../infrastructure/geocoding/caching-geocoding.provider';
 import { StaticGeocodingProvider } from '../infrastructure/geocoding/static-geocoding.provider';
 import { GeoapifyGeocodingProvider } from '../infrastructure/geocoding/geoapify-geocoding.provider';
+import { PgBossEventPublisher } from '../infrastructure/messaging/pg-boss-event-publisher';
 import { PERSISTENCE_ENTITIES } from '../infrastructure/database/persistence-entities';
 import {
   PG_BOSS,
@@ -49,13 +51,6 @@ import {
  * `env.schema.ts` entry (references/coding-conventions.md).
  */
 
-/** No-op: publish() resolves without enqueuing anything. Safe to call before P3 lands the pg-boss adapter — nothing observes the missing side effect yet, nothing in P0/P1 calls this. */
-const noOpEventPublisher: EventPublisher = {
-  publish(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
 @Module({})
 export class SharedModule {
   static register(role: PgBossRole): DynamicModule {
@@ -83,7 +78,12 @@ export class SharedModule {
       ],
       providers: [
         pgBossProvider(role),
-        { provide: EVENT_PUBLISHER, useValue: noOpEventPublisher },
+        {
+          provide: EVENT_PUBLISHER,
+          inject: [PG_BOSS],
+          useFactory: (boss: PgBoss): EventPublisher =>
+            new PgBossEventPublisher(boss),
+        },
         {
           provide: GEOCODING_PROVIDER,
           inject: [ConfigService],
