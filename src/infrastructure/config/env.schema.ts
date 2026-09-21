@@ -38,17 +38,6 @@ export const envSchema = z
       .default(15),
 
     RESERVATION_TTL_MINUTES: z.coerce.number().int().positive().default(15),
-
-    // z.coerce.boolean() is a known trap: it runs `Boolean(value)`, so the
-    // *string* "false" coerces to `true` (any non-empty string is truthy).
-    // Compare against the literal instead — anything but "true" is false,
-    // matching the default. An operator must be able to turn the dev
-    // publisher on locally without a rebuild, which is what makes this an
-    // env var rather than a constant (SPEC 04 Decisions).
-    ENABLE_DEV_ENDPOINTS: z
-      .string()
-      .default('false')
-      .transform((value) => value === 'true'),
   })
   .refine(
     (config) =>

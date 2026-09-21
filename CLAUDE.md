@@ -47,3 +47,17 @@ npm run verify                  # lint + build + unit + integration + e2e + veri
 Queue topology, retry/DLQ behaviour, the Grafana trace walkthrough,
 `X-Correlation-Id` and how to inspect/reprocess a DLQ job: README.md,
 "P3 — Queue, worker and observability".
+
+## `/spec-impl` workflow — per-step review loop
+
+After implementing each step of a spec's implementation plan:
+
+1. Write a detailed, easy-to-understand summary of what changed, with a
+   simple example (what the code does, not just which files changed).
+2. Stop. Let the user review the diff themselves.
+3. Wait for explicit confirmation.
+4. Only then commit that step (one commit per plan step, not one commit
+   for the whole spec).
+
+Do not batch multiple plan steps into a single commit or skip the
+summary-then-wait sequence, even if the change looks trivial.
