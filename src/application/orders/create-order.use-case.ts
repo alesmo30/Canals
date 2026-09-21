@@ -8,6 +8,7 @@ import {
   ProductNotFoundError,
 } from './create-order.errors';
 import type { CreateOrderCommand } from './create-order.types';
+import { buildChargeIdempotencyKey } from './charge-idempotency-key';
 import { generateOrderNumber } from './helpers/order-number.helpers';
 import {
   AllocateInventoryUseCase,
@@ -18,22 +19,31 @@ import { Order } from '../../domain/entities/order';
 import { OrderItem } from '../../domain/entities/order-item';
 import { GEOCODING_PROVIDER } from '../../domain/ports/geocoding-provider';
 import type { GeocodingProvider } from '../../domain/ports/geocoding-provider';
+import { PAYMENT_GATEWAY } from '../../domain/ports/payment-gateway';
+import type {
+  ChargeResult,
+  PaymentGateway,
+} from '../../domain/ports/payment-gateway';
 import { Money } from '../../domain/value-objects/money';
 import { ShippingAddress } from '../../domain/value-objects/shipping-address';
 import { CustomerOrmEntity } from '../../infrastructure/database/entities/customer.orm-entity';
 import { OrderItemOrmEntity } from '../../infrastructure/database/entities/order-item.orm-entity';
 import { OrderOrmEntity } from '../../infrastructure/database/entities/order.orm-entity';
+import { PaymentOrmEntity } from '../../infrastructure/database/entities/payment.orm-entity';
 import { ProductOrmEntity } from '../../infrastructure/database/entities/product.orm-entity';
 import {
   orderItemToPersistence,
   orderToPersistence,
 } from '../../infrastructure/database/mappers/order.mapper';
 
+/** A second attempt is out of scope today (SPEC 03's handoff) — always 1. */
+const FIRST_PAYMENT_ATTEMPT = 1;
+
 /**
- * Phase 1's own result — what step 9 has to show for itself before
- * charging (step 10) and settling (step 11) exist. `order`/`items` are
- * the domain objects Phase 1 just persisted; `allocation` carries the
- * winning warehouse's name/distance for the eventual `201` response.
+ * Phase 1's own result — what step 9 had to show for itself before
+ * charging (step 10) existed. `order`/`items` are the domain objects
+ * Phase 1 just persisted; `allocation` carries the winning warehouse's
+ * name/distance for the eventual `201` response.
  */
 export interface ReserveOrderResult {
   order: Order;
@@ -42,10 +52,20 @@ export interface ReserveOrderResult {
 }
 
 /**
+ * Phase 2's own result — Phase 1's result plus the persisted `payments`
+ * row and the gateway's raw outcome. Phase 3 (step 11) branches on
+ * `chargeResult.status` to decide settle vs. release.
+ */
+export interface ChargeOrderResult extends ReserveOrderResult {
+  payment: PaymentOrmEntity;
+  chargeResult: ChargeResult;
+}
+
+/**
  * specs/05-order-creation-saga.md — the three-phase `POST /orders` saga.
- * Only Phase 1 (reserve) is built here (step 9); Phase 2 (charge, step
- * 10) and Phase 3 (settle, step 11) extend `execute()`'s body in later
- * steps of the same plan, not a separate method.
+ * Phase 1 (reserve, step 9) and Phase 2 (charge, step 10) are built
+ * here; Phase 3 (settle, step 11) extends `execute()`'s body in a later
+ * step of the same plan, not a separate method.
  */
 @Injectable()
 export class CreateOrderUseCase {
@@ -54,9 +74,11 @@ export class CreateOrderUseCase {
     private readonly allocateInventoryUseCase: AllocateInventoryUseCase,
     @Inject(GEOCODING_PROVIDER)
     private readonly geocodingProvider: GeocodingProvider,
+    @Inject(PAYMENT_GATEWAY)
+    private readonly paymentGateway: PaymentGateway,
   ) {}
 
-  async execute(command: CreateOrderCommand): Promise<ReserveOrderResult> {
+  async execute(command: CreateOrderCommand): Promise<ChargeOrderResult> {
     const customer = await this.dataSource
       .getRepository(CustomerOrmEntity)
       .findOne({ where: { id: command.customerId, deletedAt: IsNull() } });
@@ -157,6 +179,61 @@ export class CreateOrderUseCase {
       onBeforeReserve,
     });
 
-    return { order: reservedOrder, items: reservedItems, allocation };
+    // Phase 2 (charge) — R4.3's hard rule: no transaction open while this
+    // is in flight. The idempotency key is persisted to `payments` before
+    // calling `charge()`, so P6's reconciliation reads it back from the
+    // row instead of rebuilding it (specs/05-order-creation-saga.md).
+    const chargeIdempotencyKey = buildChargeIdempotencyKey({
+      orderId: reservedOrder.getId(),
+      attempt: FIRST_PAYMENT_ATTEMPT,
+    });
+    const paymentRepository = this.dataSource.getRepository(PaymentOrmEntity);
+    const initialPayment: PaymentOrmEntity = {
+      id: randomUUID(),
+      orderId: reservedOrder.getId(),
+      attempt: FIRST_PAYMENT_ATTEMPT,
+      provider: 'mock-gateway',
+      providerPaymentId: null,
+      idempotencyKey: chargeIdempotencyKey,
+      status: 'PENDING',
+      amountCents: total.getAmountCents(),
+      currency: total.getCurrency(),
+      cardLast4: null,
+      cardBrand: null,
+      failureCode: null,
+      rawResponse: null,
+      settledAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    let payment = await paymentRepository.save(initialPayment);
+
+    const chargeResult = await this.paymentGateway.charge({
+      cardNumber: command.cardNumber,
+      amountMinor: total.getAmountCents(),
+      currency: total.getCurrency(),
+      description: `Order ${orderNumber}`,
+      idempotencyKey: chargeIdempotencyKey,
+    });
+
+    payment = await paymentRepository.save({
+      ...payment,
+      status: chargeResult.status,
+      providerPaymentId: chargeResult.providerPaymentId,
+      cardLast4: chargeResult.cardLast4,
+      cardBrand: chargeResult.cardBrand,
+      failureCode: chargeResult.failureCode,
+      rawResponse: chargeResult.rawResponse,
+      settledAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    return {
+      order: reservedOrder,
+      items: reservedItems,
+      allocation,
+      payment,
+      chargeResult,
+    };
   }
 }
