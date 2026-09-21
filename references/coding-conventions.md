@@ -103,6 +103,42 @@ to `helpers/`, not the method around it.
 This does not apply to genuinely small services with nothing to extract —
 don't invent a `helpers/` folder for a two-line method.
 
+## Exception: multi-phase orchestrators may split by phase into private methods
+
+The rule above assumes one method doing one operation
+(`reserve`/`release`/`commit`), each with its own single, coherent flow.
+A use case that orchestrates a spec-documented sequence of distinct
+phases — e.g. `CreateOrderUseCase.execute()`
+(`src/application/orders/create-order.use-case.ts`, SPEC 05's three-phase
+saga: reserve, charge, settle) — is a different shape: one method's
+"coherent flow" would otherwise span hundreds of lines covering three
+unrelated sets of decisions (customer/product resolution, payment
+capture, inventory settlement), each already named and bounded by the
+spec itself.
+
+For this shape, splitting by phase into `private` methods is preferred
+over one large method, **as long as each phase's own logic — its
+conditionals, its branching, the decisions that make it a settle and not
+a reserve — stays written directly in that phase's method body.** The
+top-level method (`execute()`) reads as the saga's table of contents:
+
+```ts
+async execute(command: CreateOrderCommand): Promise<CreateOrderResult> {
+  const productById = await this.resolveCustomerAndProducts(command);
+  const reserved = await this.reserveOrder(command, productById);
+  const charged = await this.chargeOrder(command, reserved.order);
+  return this.settleOrder({ ...reserved, ...charged });
+}
+```
+
+This is still subject to the same underlying rule as the mechanical
+case above: a private method here is not a mechanical, no-decision
+extraction (so it is a method, not a `helpers/` function) — it exists
+because the *phase itself*, as a whole, is a named unit the spec already
+drew a boundary around. Do not use this exception to hide an arbitrary
+mid-method decision inside a private method with a vague name; each
+extracted method must correspond to a phase the spec names.
+
 ## Raw SQL over query builders, for anything performance- or concurrency-critical
 
 TypeORM entities exist for straightforward CRUD and for the two domain

@@ -1,9 +1,13 @@
 import { randomUUID } from 'crypto';
 
+import { PgBoss } from 'pg-boss';
+
 import { CreateOrderUseCase } from './create-order.use-case';
 import { InventoryService } from '../allocation/inventory.service';
 import { AllocateInventoryUseCase } from '../allocation/allocate-inventory.use-case';
 import { StaticGeocodingProvider } from '../../infrastructure/geocoding/static-geocoding.provider';
+import { setupQueues } from '../../infrastructure/messaging/queue-setup';
+import { PgBossEventPublisher } from '../../infrastructure/messaging/pg-boss-event-publisher';
 import { HttpPaymentGateway } from '../../infrastructure/payments/http-payment-gateway';
 import { AppDataSource } from '../../infrastructure/database/data-source';
 import { CustomerOrmEntity } from '../../infrastructure/database/entities/customer.orm-entity';
@@ -22,24 +26,33 @@ const DECLINED_CARD_NUMBER = '4000000000000002';
  * reachable, `docker compose up`) and OTEL_EXPORTER_OTLP_ENDPOINT
  * exported, a migrated Postgres reachable. Builds its own
  * customer/product/warehouse fixtures (randomUUID-scoped), not seed.ts.
- * Exercises Phase 1 (reserve) + Phase 2 (charge) — Phase 3 lands in
- * step 11.
+ * Exercises all three phases: reserve, charge, settle.
  */
-describe('CreateOrderUseCase (integration) — Phase 1 (reserve) + Phase 2 (charge)', () => {
-  const useCase = new CreateOrderUseCase(
-    AppDataSource,
-    new AllocateInventoryUseCase(
-      new WarehouseSelectionRepository(AppDataSource),
-      new InventoryService(),
-      AppDataSource,
-    ),
-    new StaticGeocodingProvider(),
-    new HttpPaymentGateway({ baseUrl: process.env.PAYMENTS_URL! }),
-  );
+describe('CreateOrderUseCase (integration) — full saga', () => {
+  let boss: PgBoss;
+  let useCase: CreateOrderUseCase;
   let customerId: string;
 
   beforeAll(async () => {
     await AppDataSource.initialize();
+
+    boss = new PgBoss({ connectionString: process.env.DATABASE_URL, max: 2 });
+    await boss.start();
+    await setupQueues(boss);
+
+    useCase = new CreateOrderUseCase(
+      AppDataSource,
+      new AllocateInventoryUseCase(
+        new WarehouseSelectionRepository(AppDataSource),
+        new InventoryService(),
+        AppDataSource,
+      ),
+      new InventoryService(),
+      new StaticGeocodingProvider(),
+      new HttpPaymentGateway({ baseUrl: process.env.PAYMENTS_URL! }),
+      new PgBossEventPublisher(boss),
+    );
+
     const customer = await AppDataSource.getRepository(CustomerOrmEntity).save({
       email: `${randomUUID()}@example.com`,
       fullName: 'Create Order Test Customer',
@@ -48,15 +61,16 @@ describe('CreateOrderUseCase (integration) — Phase 1 (reserve) + Phase 2 (char
   });
 
   afterAll(async () => {
+    await boss.stop();
     await AppDataSource.destroy();
   });
 
-  it('reserves stock, inserts orders (PENDING_PAYMENT) with order_items snapshots, and returns the winning warehouse', async () => {
+  async function makeFixture(unitPriceCents: number) {
     const product = await AppDataSource.getRepository(ProductOrmEntity).save({
       sku: `SKU-${randomUUID()}`,
       name: 'Create Order Test Product',
       condition: 'NEW',
-      unitPriceCents: 1500,
+      unitPriceCents,
       isActive: true,
     });
     const warehouse = await AppDataSource.getRepository(
@@ -64,7 +78,7 @@ describe('CreateOrderUseCase (integration) — Phase 1 (reserve) + Phase 2 (char
     ).save({
       name: `Create Order Test WH ${randomUUID()}`,
       address: { line1: '1 Test Way', city: 'Test City', country: 'US' },
-      // Near New York, same as the shipping address below.
+      // Near New York, same as the shipping address used below.
       location: { type: 'Point', coordinates: [-74.0, 40.72] },
       isActive: true,
     });
@@ -74,6 +88,19 @@ describe('CreateOrderUseCase (integration) — Phase 1 (reserve) + Phase 2 (char
       quantityAvailable: 5,
       quantityReserved: 0,
     });
+    return { product, warehouse };
+  }
+
+  async function jobsForOrder(orderId: string): Promise<string[]> {
+    const rows: { name: string }[] = await AppDataSource.query(
+      `select name from pgboss.job where data->'payload'->>'orderId' = $1`,
+      [orderId],
+    );
+    return rows.map((row) => row.name);
+  }
+
+  it('CAPTURED: reserves, charges, settles to CONFIRMED, commits stock and enqueues order.confirmed', async () => {
+    const { product, warehouse } = await makeFixture(1500);
 
     const result = await useCase.execute({
       customerId,
@@ -89,65 +116,50 @@ describe('CreateOrderUseCase (integration) — Phase 1 (reserve) + Phase 2 (char
       idempotencyKey: randomUUID(),
     });
 
-    expect(result.order.getStatus()).toBe('PENDING_PAYMENT');
+    // Phase 1
     expect(result.allocation.warehouseId).toBe(warehouse.id);
     expect(result.allocation.name).toBe(warehouse.name);
     expect(typeof result.allocation.distanceMeters).toBe('number');
     expect(result.items).toHaveLength(1);
     expect(result.items[0].getProductSkuSnapshot()).toBe(product.sku);
 
-    const persistedOrder = await AppDataSource.getRepository(
-      OrderOrmEntity,
-    ).findOneByOrFail({ id: result.order.getId() });
-    expect(persistedOrder.status).toBe('PENDING_PAYMENT');
-    expect(persistedOrder.warehouseId).toBe(warehouse.id);
-    expect(persistedOrder.totalCents).toBe(3000); // 1500 * 2
-
     const persistedItems = await AppDataSource.getRepository(
       OrderItemOrmEntity,
     ).find({ where: { orderId: result.order.getId() } });
     expect(persistedItems).toHaveLength(1);
-    expect(persistedItems[0].quantity).toBe(2);
-    expect(persistedItems[0].productSkuSnapshot).toBe(product.sku);
     expect(persistedItems[0].unitPriceCents).toBe(1500);
 
+    // Phase 2
     expect(result.chargeResult.status).toBe('CAPTURED');
-    expect(result.payment.status).toBe('CAPTURED');
     expect(result.payment.idempotencyKey).toBe(
       `order:${result.order.getId()}:attempt:1`,
     );
-    expect(result.payment.amountCents).toBe(3000);
 
-    const persistedPayment = await AppDataSource.getRepository(
-      PaymentOrmEntity,
-    ).findOneByOrFail({ orderId: result.order.getId() });
-    expect(persistedPayment.status).toBe('CAPTURED');
+    // Phase 3
+    expect(result.order.getStatus()).toBe('CONFIRMED');
+
+    const persistedOrder = await AppDataSource.getRepository(
+      OrderOrmEntity,
+    ).findOneByOrFail({ id: result.order.getId() });
+    expect(persistedOrder.status).toBe('CONFIRMED');
+    expect(persistedOrder.confirmedAt).not.toBeNull();
+
+    const inventory = await AppDataSource.getRepository(
+      InventoryOrmEntity,
+    ).findOneByOrFail({ warehouseId: warehouse.id, productId: product.id });
+    // Committed, not released: quantity_available stays at 5 - 2 = 3
+    // (reserve() already moved it out of the available pool).
+    expect(inventory.quantityAvailable).toBe(3);
+    expect(inventory.quantityReserved).toBe(0);
+
+    const jobs = await jobsForOrder(result.order.getId());
+    expect(jobs).toContain('order.confirmed');
   });
 
-  it('persists a DECLINED payment for card ...0002, without touching the order status (Phase 3 does that)', async () => {
-    const product = await AppDataSource.getRepository(ProductOrmEntity).save({
-      sku: `SKU-${randomUUID()}`,
-      name: 'Create Order Test Product (declined)',
-      condition: 'NEW',
-      unitPriceCents: 2000,
-      isActive: true,
-    });
-    const warehouse = await AppDataSource.getRepository(
-      WarehouseOrmEntity,
-    ).save({
-      name: `Create Order Test WH ${randomUUID()}`,
-      address: { line1: '1 Test Way', city: 'Test City', country: 'US' },
-      location: { type: 'Point', coordinates: [-74.0, 40.72] },
-      isActive: true,
-    });
-    await AppDataSource.getRepository(InventoryOrmEntity).save({
-      warehouseId: warehouse.id,
-      productId: product.id,
-      quantityAvailable: 5,
-      quantityReserved: 0,
-    });
+  it('DECLINED: releases stock back to quantity_available, marks PAYMENT_FAILED, and throws PaymentDeclinedError', async () => {
+    const { product, warehouse } = await makeFixture(2000);
 
-    const result = await useCase.execute({
+    const promise = useCase.execute({
       customerId,
       shippingAddress: {
         recipient: 'Ada Lovelace',
@@ -161,18 +173,25 @@ describe('CreateOrderUseCase (integration) — Phase 1 (reserve) + Phase 2 (char
       idempotencyKey: randomUUID(),
     });
 
-    expect(result.chargeResult.status).toBe('DECLINED');
+    await expect(promise).rejects.toMatchObject({
+      name: 'PaymentDeclinedError',
+    });
+
+    const orders = await AppDataSource.getRepository(OrderOrmEntity).find({
+      where: { warehouseId: warehouse.id },
+    });
+    expect(orders).toHaveLength(1);
+    expect(orders[0].status).toBe('PAYMENT_FAILED');
+
+    const inventory = await AppDataSource.getRepository(
+      InventoryOrmEntity,
+    ).findOneByOrFail({ warehouseId: warehouse.id, productId: product.id });
+    expect(inventory.quantityAvailable).toBe(5); // released back
+    expect(inventory.quantityReserved).toBe(0);
 
     const persistedPayment = await AppDataSource.getRepository(
       PaymentOrmEntity,
-    ).findOneByOrFail({ orderId: result.order.getId() });
+    ).findOneByOrFail({ orderId: orders[0].id });
     expect(persistedPayment.status).toBe('DECLINED');
-
-    // Phase 3 (step 11) owns the order/inventory branch on this outcome —
-    // untouched here.
-    const persistedOrder = await AppDataSource.getRepository(
-      OrderOrmEntity,
-    ).findOneByOrFail({ id: result.order.getId() });
-    expect(persistedOrder.status).toBe('PENDING_PAYMENT');
   });
 });
