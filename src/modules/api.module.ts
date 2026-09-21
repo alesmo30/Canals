@@ -6,7 +6,7 @@ import { HealthController } from '../infrastructure/health/health.controller';
 
 /** SharedModule + HTTP controllers (infrastructure.md §3). main.ts's entrypoint. */
 @Module({
-  imports: [SharedModule, TerminusModule],
+  imports: [SharedModule.register('api'), TerminusModule],
   controllers: [HealthController],
 })
 export class ApiModule {}

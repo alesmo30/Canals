@@ -9,6 +9,6 @@ import { SharedModule } from './shared.module';
  * stays up doing nothing).
  */
 @Module({
-  imports: [SharedModule],
+  imports: [SharedModule.register('worker')],
 })
 export class WorkerModule {}
