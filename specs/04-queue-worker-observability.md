@@ -1,6 +1,6 @@
 # SPEC 04 — P3 Queue, Worker and Observability: pg-boss, job handlers and traces
 
-> **Status:** Approved
+> **Status:** Implemented
 > **Depends on:** SPEC 01 (consumes SPEC 03's redacting logger)
 > **Date:** 2026-09-20
 > **Objective:** Make the worker real — a pg-boss adapter whose job insert joins the caller's transaction, one `order.confirmed` event fanning out into three independently retried jobs each with its own dead-letter queue, and enough OpenTelemetry, structured logging and health signalling that one `correlationId` links an HTTP request to every job it caused.
@@ -382,102 +382,102 @@ verified before the next one starts.
 
 **Transactional outbox (R3.2)**
 
-- [ ] Publishing `order.confirmed` inside a transaction that is then rolled
+- [x] Publishing `order.confirmed` inside a transaction that is then rolled
       back leaves **zero** job rows in pg-boss's job table for all three
       queues.
-- [ ] The same publish followed by a commit leaves exactly three job rows, one
+- [x] The same publish followed by a commit leaves exactly three job rows, one
       per queue.
-- [ ] Both assertions hold when the transaction also writes an `orders` row:
+- [x] Both assertions hold when the transaction also writes an `orders` row:
       the order and the jobs are saved together, or neither is.
-- [ ] `publish()` without a `tx` still enqueues, so a caller outside a
+- [x] `publish()` without a `tx` still enqueues, so a caller outside a
       transaction (a script) works.
-- [ ] Publishing an event type absent from `EVENT_ROUTING` throws
+- [x] Publishing an event type absent from `EVENT_ROUTING` throws
       `UnroutedEventError` and enqueues nothing.
 
 **Fan-out and handlers (R3.4, R3.6)**
 
-- [ ] One `order.confirmed` produces exactly three jobs, one per queue, each
+- [x] One `order.confirmed` produces exactly three jobs, one per queue, each
       with its own job id and its own retry counter.
-- [ ] The three handlers run independently: with `shipment.create` failing
+- [x] The three handlers run independently: with `shipment.create` failing
       every attempt, `customer.notify` and `analytics.record` still complete.
-- [ ] Running the same `shipment.create` job twice creates exactly one
+- [x] Running the same `shipment.create` job twice creates exactly one
       `shipments` row and raises no error.
-- [ ] A `shipment.create` job for an order with no `warehouse_id` fails rather
+- [x] A `shipment.create` job for an order with no `warehouse_id` fails rather
       than writing a partial row.
-- [ ] The created shipment has status `PENDING_DISPATCH`, null `carrier` and
+- [x] The created shipment has status `PENDING_DISPATCH`, null `carrier` and
       null `tracking_number`, and its `warehouse_id` matches the order's.
 
 **Retries and dead-letter queues (R3.5)**
 
-- [ ] A handler that always throws is attempted exactly **5 times**, and the
+- [x] A handler that always throws is attempted exactly **5 times**, and the
       gap between attempts grows.
-- [ ] After the fifth failure the job is in `<queue>.dlq`, carrying its
+- [x] After the fifth failure the job is in `<queue>.dlq`, carrying its
       attempt count and the last error, and its `sourceId` points at the
       original job.
-- [ ] Five structured `warn` lines were logged for it, with ascending
+- [x] Five structured `warn` lines were logged for it, with ascending
       `attempt` and the same `correlationId` — the per-attempt history pg-boss
       does not keep.
-- [ ] `order.confirmed` published for a non-existent `orderId` lands
+- [x] `order.confirmed` published for a non-existent `orderId` lands
       `shipment.create` in its DLQ with a foreign-key violation as the last
       error, while the other two queues complete. *(Deviation: the last
       error is a `NOT NULL` violation on `warehouse_id`, not a foreign-key
       violation on `order_id` — Postgres checks `NOT NULL` before `FOREIGN
       KEY` and the missing-order subquery resolves `NULL` either way. See
       Decisions, "Retries and dead-letter queues".)*
-- [ ] A job sitting in a DLQ is still there after pg-boss maintenance has run:
+- [x] A job sitting in a DLQ is still there after pg-boss maintenance has run:
       DLQ retention is explicit, not the default.
-- [ ] Grafana shows `queue.dlq.size` at 1 for `shipment.create.dlq` and 0 for
+- [x] Grafana shows `queue.dlq.size` at 1 for `shipment.create.dlq` and 0 for
       the other two after that scenario.
 
 **Correlation and tracing (R3.7)**
 
-- [ ] A request with a valid `X-Correlation-Id` reuses it; a request without
+- [x] A request with a valid `X-Correlation-Id` reuses it; a request without
       one gets a generated UUID. Either way it comes back in the response
       header.
-- [ ] An inbound `X-Correlation-Id` longer than 128 characters or containing
+- [x] An inbound `X-Correlation-Id` longer than 128 characters or containing
       anything outside `[A-Za-z0-9-]` is rejected and replaced by a generated
       one.
-- [ ] Every api and worker log line produced by one order carries the same
+- [x] Every api and worker log line produced by one order carries the same
       `correlationId`, plus `trace_id` and `span_id`.
-- [ ] Grafana shows the `POST /internal/events/order-confirmed` request as one
+- [x] Grafana shows the `POST /internal/events/order-confirmed` request as one
       trace, and each job as its own trace named `job <queue>`, **linked** to
       the request's trace and sharing its `correlationId`. *(Deviation from the
       phase's AC 5, which asks for a single trace — see Decisions.)*
-- [ ] Each job trace contains the `pg` spans its handler produced; no orphan
+- [x] Each job trace contains the `pg` spans its handler produced; no orphan
       database span appears outside a job trace.
-- [ ] Handlers receive `payload` only: no handler reads `meta`,
+- [x] Handlers receive `payload` only: no handler reads `meta`,
       `correlationId` or `traceparent`.
-- [ ] No log line or span attribute contains a card number: `redact()` still
+- [x] No log line or span attribute contains a card number: `redact()` still
       applies after the pino mixin is added.
 
 **Health and shutdown (R3.1, R3.3, R3.8)**
 
-- [ ] `GET /health` returns 200 while postgres is stopped; `GET /health/ready`
+- [x] `GET /health` returns 200 while postgres is stopped; `GET /health/ready`
       returns 503 and returns to 200 once postgres is back, with no api
       restart.
-- [ ] `/health/ready` reports the queue separately from the database.
-- [ ] `docker compose ps` shows the worker healthy while it runs and unhealthy
+- [x] `/health/ready` reports the queue separately from the database.
+- [x] `docker compose ps` shows the worker healthy while it runs and unhealthy
       once stopped.
-- [ ] `docker compose stop worker` during an in-flight job lets that job
+- [x] `docker compose stop worker` during an in-flight job lets that job
       finish, exits cleanly, and the job is not re-delivered on the next start.
-- [ ] The worker process listens on no TCP port (`ss`/`netstat` inside the
+- [x] The worker process listens on no TCP port (`ss`/`netstat` inside the
       container shows none).
-- [ ] `WorkerModule` does not import `ApiModule`, and the api registers no
+- [x] `WorkerModule` does not import `ApiModule`, and the api registers no
       `boss.work()`.
 
 **Wiring and configuration**
 
-- [ ] `docker compose up` from a clean volume creates the `pgboss` schema and
+- [x] `docker compose up` from a clean volume creates the `pgboss` schema and
       all six queues, and a restart of both containers creates nothing new.
-- [ ] With `ENABLE_DEV_ENDPOINTS` unset, `POST /internal/events/order-confirmed`
+- [x] With `ENABLE_DEV_ENDPOINTS` unset, `POST /internal/events/order-confirmed`
       returns 404 and the app boots normally.
-- [ ] `npm run verify:db` still passes: the `pgboss` schema does not disturb
+- [x] `npm run verify:db` still passes: the `pgboss` schema does not disturb
       the application schema check.
-- [ ] `src/domain/**` still passes `no-restricted-imports`; no domain file
+- [x] `src/domain/**` still passes `no-restricted-imports`; no domain file
       imports pg-boss or OpenTelemetry.
-- [ ] `npm run events-check` exits zero with the stack up and non-zero with the
+- [x] `npm run events-check` exits zero with the stack up and non-zero with the
       worker stopped.
-- [ ] `npm run lint`, `npm run build`, `npm run test:unit`,
+- [x] `npm run lint`, `npm run build`, `npm run test:unit`,
       `npm run test:integration` and `npm run verify` all pass.
 
 ## Decisions
@@ -551,6 +551,17 @@ deleted after this section was written.
   `useListenNotify`** (`ConstructorOptions`, default `false`). Only the
   worker's `PgBoss` instance sets it to `true`; the api's instance (publish
   and readiness reads only, no `work()`) does not need the listener.
+- **pg-boss creates one internal system queue of its own,
+  `__pgboss__send-it`** (`timekeeper.js`'s `QUEUES.SEND_IT`), the moment an
+  instance starts with `schedule: true` — found during step 12's AC
+  verification of "a clean volume creates all six queues": `pgboss.queue`
+  actually holds seven rows after `docker compose up` from empty. It is
+  pg-boss's own scheduling-subsystem plumbing, not one of `QUEUE_TOPOLOGY`'s
+  six, created and owned entirely outside `setupQueues()`; nothing here
+  reads, writes or depends on it. The AC's "all six queues" refers to this
+  spec's own topology and holds unchanged — this is a note for whoever next
+  greps `pgboss.queue` and wonders where the seventh row came from, not a
+  deviation.
 
 **Queue topology and fan-out**
 
