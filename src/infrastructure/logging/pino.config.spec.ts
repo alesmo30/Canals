@@ -3,6 +3,7 @@ import { Writable } from 'node:stream';
 import pino from 'pino';
 
 import { pinoOptions } from './pino.config';
+import { correlationStorage } from '../observability/correlation';
 
 function createCapturingStream(): {
   stream: Writable;
@@ -43,5 +44,29 @@ describe('pinoOptions', () => {
     expect(line.cardNumber).toBe('************4242');
     expect(line.note).toBe('pan ************4242');
     expect(serialised).not.toContain('4242424242424242');
+  });
+
+  it('SPEC 04 step 7 Risks — the mixin-added correlationId does not let a card number bypass redact()', () => {
+    const { stream, lines } = createCapturingStream();
+    const logger = pino(pinoOptions, stream);
+
+    correlationStorage.run({ correlationId: 'corr-abc-123' }, () => {
+      logger.info({ cardNumber: '4242424242424242' });
+    });
+
+    const [line] = lines();
+    expect(line.correlationId).toBe('corr-abc-123');
+    expect(line.cardNumber).toBe('************4242');
+    expect(JSON.stringify(line)).not.toContain('4242424242424242');
+  });
+
+  it('adds no correlationId field when logging outside any correlationStorage.run()', () => {
+    const { stream, lines } = createCapturingStream();
+    const logger = pino(pinoOptions, stream);
+
+    logger.info({ hello: 'world' });
+
+    const [line] = lines();
+    expect(line.correlationId).toBeUndefined();
   });
 });

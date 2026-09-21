@@ -297,6 +297,166 @@ credits/day; the cache absorbs repeat lookups for the same address.
 
 Geocoding powered by [Geoapify](https://www.geoapify.com/).
 
+## P3 — Queue, worker and observability
+
+specs/04-queue-worker-observability.md. A real `pg-boss` adapter behind
+the frozen `EventPublisher` port: `order.confirmed` fans out to three
+queues in one transaction, a standalone worker consumes them (the api
+never does), and every request and job is a trace in Grafana sharing one
+`correlationId`. `POST /internal/events/order-confirmed` is a
+development-only stand-in for P4's `POST /orders` — the only way to
+trigger this flow before the saga exists — registered only when
+`ENABLE_DEV_ENDPOINTS=true` (compose's default).
+
+### Queue topology
+
+```
+POST /internal/events/order-confirmed
+              │  order.confirmed
+              ▼
+   EVENT_ROUTING fan-out (event-routing.ts)
+   one transaction, one job insert per queue
+   ┌──────────────┼───────────────────┐
+   ▼               ▼                   ▼
+shipment.create  customer.notify  analytics.record
+   │               │                   │
+   ▼               ▼                   ▼
+ShipmentCreate-  CustomerNotify-   AnalyticsRecord-
+Handler          Handler           Handler
+   │ 5 failed attempts (~1 min)
+   ▼
+shipment.create.dlq          (customer.notify.dlq, analytics.record.dlq — same shape)
+```
+
+| Queue | Dead letter | Handler |
+|---|---|---|
+| `shipment.create` | `shipment.create.dlq` | `ShipmentCreateHandler` |
+| `customer.notify` | `customer.notify.dlq` | `CustomerNotifyHandler` |
+| `analytics.record` | `analytics.record.dlq` | `AnalyticsRecordHandler` |
+
+Both api and worker create all six queues at boot (idempotent — a restart
+creates nothing new); only the worker calls `boss.work()` on them.
+
+### Retries and dead-letter queues
+
+| Setting | Value | Why |
+|---|---|---|
+| `retryLimit` | `4` | 5 attempts total — pg-boss counts retries *after* the first (R3.5) |
+| `retryBackoff` / `retryDelay` / `retryDelayMax` | `true` / `1s` / `60s` | exponential backoff between attempts |
+| `DLQ_RETENTION_DAYS` | `30` | a dead-lettered job must outlive a long weekend |
+
+Retries carry no `NOTIFY`, so the 15 s polling interval is the real clock:
+a doomed job's five attempts land roughly at t+0s, ~15s, ~30s, ~45s and
+~60s, reaching its DLQ about a minute after the first failure. A job
+lands in a DLQ on either kind of failure — a handler throwing, or (the
+realistic case) `shipment.create` for an order whose `warehouse_id` is
+still `NULL` — and stays there indefinitely: DLQs have no consumer, by
+design, so nothing is silently retried forever or silently dropped.
+
+### Reading one order as a trace in Grafana
+
+```bash
+docker compose up -d
+curl -X POST localhost:3000/internal/events/order-confirmed \
+  -H 'Content-Type: application/json' \
+  -d '{"orderId":"<an existing order id with a warehouse_id set>"}'
+# 202, and an X-Correlation-Id response header
+```
+
+Open **http://localhost:3001** (Grafana, no login needed —
+`grafana/otel-lgtm`'s default). Explore → data source **Tempo** → Search
+tab → `Service Name` = `canals-api`, `Span Name` = `POST` finds the
+request trace. Do the same with `Service Name` = `canals-worker` to find
+the three `job shipment.create` / `job customer.notify` / `job
+analytics.record` traces the same request produced.
+
+Each job trace is its **own** trace, not a child span of the request —
+`JobRunner` opens it with `root: true` (job-runner.ts) because pg-boss's
+own fetch loop is an unrelated, unrooted context by the time the handler
+runs. What connects it back is a **span link** to the request's span,
+captured from the `traceparent` `PgBossEventPublisher` stamps into the
+job's `meta` at publish time (W3C trace context, not a custom header).
+Opening a job trace in Grafana and expanding its root span's "Links"
+panel shows the originating request trace — that is the mechanism behind
+the phase's AC 5 deviation ("linked traces sharing one `correlationId`",
+not one single trace: a job can run seconds or minutes after the request
+that queued it, so nesting it inside that request's trace would leave
+the request's own span artificially open).
+
+Each job trace also contains the `pg` spans its handler produced (e.g.
+`ShipmentCreateHandler`'s insert) — `context.with()` around the handler
+call is what nests them there instead of them showing up as orphans
+outside any job trace.
+
+### The `X-Correlation-Id` walkthrough
+
+```bash
+curl -i -X POST localhost:3000/internal/events/order-confirmed \
+  -H 'Content-Type: application/json' \
+  -H 'X-Correlation-Id: demo-correlation-1' \
+  -d '{"orderId":"<order id>"}'
+# X-Correlation-Id: demo-correlation-1  — echoed back unchanged
+```
+
+Omit the header and the api generates one (a UUID) instead — either way
+it comes back on the response and travels with every job the request
+enqueues (`meta.correlationId` in the job envelope). Grep the api's and
+the worker's logs for it and every line the request and its three jobs
+produced comes back, each carrying its own `trace_id`/`span_id` but the
+same `correlationId`:
+
+```bash
+docker compose logs api worker | grep demo-correlation-1
+```
+
+This is what a support ticket ("order X never shipped") actually gets
+searched by: `correlationId` is a plain string an operator can paste
+into a log query with no tracing backend involved, while the linked
+traces above are what a developer opens afterwards to see *where* in
+that request's timeline the time went.
+
+### Inspecting and reprocessing a DLQ job
+
+Inspect (the job's `data` is the same `{ payload, meta }` envelope every
+handler receives, plus `payload`; `output` is pg-boss's own record of the
+last failure):
+
+```bash
+docker exec -it canals-postgres-1 psql -U canals -d canals -c \
+  "SELECT id, data, output->>'message' AS last_error
+   FROM pgboss.job
+   WHERE name = 'shipment.create.dlq'
+   ORDER BY created_on DESC LIMIT 5;"
+```
+
+There is no reprocessing tool (Scope — "P3 does not build one"): a DLQ
+job sits there until a human replays it, deliberately, once whatever it
+was proving is fixed. Fix the underlying issue first (here, the realistic
+case: give the order a `warehouse_id`), then re-`send` the DLQ job's own
+`data` back onto its original queue:
+
+```bash
+JOB_ID=<id from the query above>
+DATA=$(docker exec canals-postgres-1 psql -U canals -d canals -t -A -c \
+  "SELECT data FROM pgboss.job WHERE id = '$JOB_ID'")
+
+DATABASE_URL=postgres://canals:canals@localhost:5432/canals \
+  node --input-type=module -e "
+import { PgBoss } from 'pg-boss';
+const data = JSON.parse(process.argv[1]);
+const boss = new PgBoss({ connectionString: process.env.DATABASE_URL, max: 2 });
+await boss.start();
+console.log('re-queued as', await boss.send('shipment.create', data));
+await boss.stop({ close: true });
+" "$DATA"
+```
+
+The original DLQ row is left in place — it is the paper trail that this
+happened and was replayed, not a queue slot to be cleared — and the
+worker picks the new job up within one polling interval. `pg-boss`'s own
+`--input-type=module` is required because `pg-boss@12` ships ESM-only; a
+plain `require('pg-boss')` throws `ERR_REQUIRE_ESM`.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.

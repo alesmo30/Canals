@@ -1,7 +1,14 @@
+// SPEC 04 step 7: must be the first import — see tracing.ts's own comment
+// on why (auto-instrumentation patches http/pg by hooking their
+// require(), so anything imported before this leaves them
+// un-instrumented).
+import './infrastructure/observability/tracing';
+
 import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 
 import { WorkerModule } from './modules/worker.module';
+import { JobRunner } from './infrastructure/messaging/job-runner';
 import { redact } from './infrastructure/http/redaction';
 
 async function bootstrap() {
@@ -16,11 +23,16 @@ async function bootstrap() {
   // SPEC 03 step 2: same redacting pino logger as the api (SharedModule's
   // LoggerModule.forRoot(pinoOptions)).
   app.useLogger(app.get(Logger));
-  // No job runner yet — pg-boss wiring is P3's job. R0.1 acceptance
-  // criterion 5: the worker starts, connects to the database (via
-  // SharedModule's TypeOrmModule) and stays up doing nothing. The open
-  // TypeORM/pg connection pool is what keeps the process alive; nothing
-  // else here holds the event loop open.
+  // Without this, SIGTERM (docker stop) kills the process directly and
+  // JobRunner.onApplicationShutdown() (boss.stop({ graceful: true })) never
+  // runs — an in-flight job would be cut off mid-handler instead of
+  // finishing (SPEC 04 Decisions, "The worker, its connections and
+  // shutdown").
+  app.enableShutdownHooks();
+  // boss.work() per queue (infrastructure.md §3's `main.worker.ts`
+  // example). The open pg-boss/TypeORM pools keep the process alive from
+  // here; nothing else holds the event loop open.
+  await app.get(JobRunner).start();
 }
 
 bootstrap().catch((error: unknown) => {

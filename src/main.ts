@@ -1,3 +1,9 @@
+// SPEC 04 step 7: must be the first import — see tracing.ts's own comment
+// on why (auto-instrumentation patches http/pg by hooking their
+// require(), so anything imported before this leaves them
+// un-instrumented).
+import './infrastructure/observability/tracing';
+
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
@@ -22,6 +28,12 @@ async function bootstrap() {
   // pino-http's own request/response logging — goes through redact()
   // (SharedModule's LoggerModule.forRoot(pinoOptions)).
   app.useLogger(app.get(Logger));
+  // Without this, SIGTERM kills the process directly and
+  // PgBossShutdownHook.onApplicationShutdown() never runs — the api's own
+  // pg-boss pool (and its internal timers) would leak instead of closing
+  // (SPEC 04 step 9 finding — surfaced by this file's e2e test never
+  // exiting cleanly).
+  app.enableShutdownHooks();
   // R0.1: global ValidationPipe, no DTOs to validate yet — P4 only writes
   // DTOs, this file does not change again for that.
   app.useGlobalPipes(
