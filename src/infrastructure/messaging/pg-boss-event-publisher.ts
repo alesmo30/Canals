@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 
+import { context, defaultTextMapSetter, propagation } from '@opentelemetry/api';
 import type { Db, PgBoss, SendOptions } from 'pg-boss';
 
 import {
@@ -7,8 +8,21 @@ import {
   EventPublisher,
   TransactionContext,
 } from '../../domain/ports/event-publisher';
+import { getCorrelationId } from '../observability/correlation';
 import { EVENT_ROUTING, UnroutedEventError } from './event-routing';
 import { JobBody, JobMeta } from './job-envelope';
+
+/**
+ * Injects the active OTel span (if any) into a plain carrier via the
+ * globally-registered W3C propagator (`tracing.ts`'s `NodeSDK` registers
+ * it), then reads back the `traceparent` field it wrote — `null` when no
+ * span is active, matching `JobMeta.traceparent`'s own contract.
+ */
+function captureTraceparent(): string | null {
+  const carrier: Record<string, string> = {};
+  propagation.inject(context.active(), carrier, defaultTextMapSetter);
+  return carrier.traceparent ?? null;
+}
 
 /**
  * SPEC 04 — replaces P0's no-op `EVENT_PUBLISHER` stub. Implements the
@@ -26,13 +40,13 @@ export class PgBossEventPublisher implements EventPublisher {
       throw new UnroutedEventError(event.type);
     }
 
-    // Step 7 replaces this with the correlationId/traceparent captured from
-    // AsyncLocalStorage and the active OTel span; until then every publish
-    // gets its own fresh id and no trace context (JobMeta.traceparent is
-    // explicitly nullable for exactly this case).
+    // getCorrelationId() reads the AsyncLocalStorage the api's
+    // CorrelationMiddleware (or the JobRunner, when a handler itself
+    // publishes) already populated; a publish from outside any tracked
+    // context (a script) still gets a fresh id rather than "undefined".
     const meta: JobMeta = {
-      correlationId: randomUUID(),
-      traceparent: null,
+      correlationId: getCorrelationId() ?? randomUUID(),
+      traceparent: captureTraceparent(),
       publishedAt: new Date().toISOString(),
     };
     const body: JobBody = { payload: event.payload, meta };

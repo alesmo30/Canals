@@ -4,6 +4,7 @@ import { PgBossEventPublisher } from './pg-boss-event-publisher';
 import { UnroutedEventError } from './event-routing';
 import { JobBody } from './job-envelope';
 import { TransactionContext } from '../../domain/ports/event-publisher';
+import { correlationStorage } from '../observability/correlation';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -113,5 +114,26 @@ describe('PgBossEventPublisher', () => {
     }
     expect(executeSql).toHaveBeenCalledTimes(3);
     expect(executeSql).toHaveBeenCalledWith('select 1', []);
+  });
+
+  it('reuses the correlationId from correlationStorage instead of generating a new one', async () => {
+    const { boss, send } = createFakeBoss();
+    const publisher = new PgBossEventPublisher(boss);
+
+    await correlationStorage.run(
+      { correlationId: 'from-async-local-storage' },
+      () =>
+        publisher.publish({
+          type: 'order.confirmed',
+          payload: {
+            orderId: 'order-1',
+            occurredAt: '2026-01-01T00:00:00.000Z',
+          },
+        }),
+    );
+
+    for (const [, body] of sendCalls(send)) {
+      expect(body.meta.correlationId).toBe('from-async-local-storage');
+    }
   });
 });

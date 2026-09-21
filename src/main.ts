@@ -1,3 +1,9 @@
+// SPEC 04 step 7: must be the first import — see tracing.ts's own comment
+// on why (auto-instrumentation patches http/pg by hooking their
+// require(), so anything imported before this leaves them
+// un-instrumented).
+import './infrastructure/observability/tracing';
+
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
