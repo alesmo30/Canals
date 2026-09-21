@@ -40,5 +40,10 @@ npm run test:unit               # no DB needed
 npm run test:integration        # needs a migrated Postgres reachable
 npm run concurrency-check       # -- 50 for N=50; default N=5, resets its own fixture each run
 npm run payments-check          # needs payments-mock reachable (docker compose up); ~7s, dominated by card 0004's timeout
-npm run verify                  # lint + build + unit + integration + e2e + verify:db + concurrency-check + payments-check
+npm run events-check            # needs a worker reachable (docker compose up); publishes order.confirmed, waits for 3 jobs + 1 shipment
+npm run verify                  # lint + build + unit + integration + e2e + verify:db + concurrency-check + payments-check + events-check
 ```
+
+Queue topology, retry/DLQ behaviour, the Grafana trace walkthrough,
+`X-Correlation-Id` and how to inspect/reprocess a DLQ job: README.md,
+"P3 — Queue, worker and observability".
