@@ -48,7 +48,7 @@ export class AllocateInventoryUseCase {
     );
 
     if (candidates.length === 0) {
-      throw new NoFulfilmentPossibleError(requestedProductIds);
+      throw new NoFulfilmentPossibleError(requestedProductIds, 'NO_CANDIDATES');
     }
 
     // Generated once, before the first attempt, and reused across every
@@ -89,6 +89,9 @@ export class AllocateInventoryUseCase {
       }
     }
 
-    throw new NoFulfilmentPossibleError(Array.from(unmetProductIds));
+    throw new NoFulfilmentPossibleError(
+      Array.from(unmetProductIds),
+      'RESERVATION_RACE_LOST',
+    );
   }
 }

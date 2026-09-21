@@ -110,7 +110,9 @@ condition from a terminal one:
   the next candidate.
 - `NoFulfilmentPossibleError` — raised by the use case when no candidate
   qualifies, or when all attempts are exhausted. Carries the unsatisfiable
-  product ids, which P4's 422 response will need.
+  product ids. **Overridden by specs/05-order-creation-saga.md** (Cross-phase
+  notes, below): it now also carries a `reason` field distinguishing these two
+  cases, since P4 maps them to different statuses (`422`/`409`).
 
 ### The selection statement
 
@@ -513,6 +515,18 @@ onward are verified against the running compose stack on `localhost:5432`.
   SPEC 01's frozen contracts — those are the domain, the ports, the persistence
   entities and the schema — so extending it is legitimate. Recorded here so the
   cross-phase edit is deliberate rather than an accident of scope.
+- **Overridden by specs/05-order-creation-saga.md (P4, step 8):** this spec's
+  own text above ("no candidate qualifies, or when all attempts are
+  exhausted... which P4's `422` response will need") originally collapsed both
+  root causes into one status. `phases/04-order-creation-saga.md`'s R4.5 table
+  had already asked for two distinct statuses (`422` vs `409`) for these two
+  cases, and P4 restores that split: `NoFulfilmentPossibleError` now carries a
+  `reason: 'NO_CANDIDATES' | 'RESERVATION_RACE_LOST'` field (additive
+  constructor parameter), so the two call sites in
+  `allocate-inventory.use-case.ts` — zero candidates at selection vs. every
+  candidate losing its race under lock — are distinguishable by the caller.
+  `productIds` is unchanged. P4 explicitly authorized re-opening this
+  already-merged file for this one field.
 
 ## Risks
 

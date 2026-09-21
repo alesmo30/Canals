@@ -192,7 +192,7 @@ describe('AllocateInventoryUseCase (integration)', () => {
     expect(result.distanceMeters).toBeGreaterThanOrEqual(0);
   });
 
-  it('raises NoFulfilmentPossibleError naming every requested product id when no candidate qualifies', async () => {
+  it('raises NoFulfilmentPossibleError(NO_CANDIDATES) naming every requested product id when no candidate qualifies', async () => {
     const productId = await makeProduct();
     // No warehouse stocks this product at all — selection returns nothing.
 
@@ -205,10 +205,11 @@ describe('AllocateInventoryUseCase (integration)', () => {
     await expect(promise).rejects.toBeInstanceOf(NoFulfilmentPossibleError);
     await promise.catch((error: NoFulfilmentPossibleError) => {
       expect(error.productIds).toEqual([productId]);
+      expect(error.reason).toBe('NO_CANDIDATES');
     });
   });
 
-  it('raises NoFulfilmentPossibleError with the unmet product ids after every candidate fails', async () => {
+  it('raises NoFulfilmentPossibleError(RESERVATION_RACE_LOST) with the unmet product ids after every candidate fails', async () => {
     const productId = await makeProduct();
     const warehouseAId = await makeWarehouse(40.72, -74.0);
     const warehouseBId = await makeWarehouse(34.0522, -118.2437);
@@ -236,6 +237,7 @@ describe('AllocateInventoryUseCase (integration)', () => {
     await expect(promise).rejects.toBeInstanceOf(NoFulfilmentPossibleError);
     await promise.catch((error: NoFulfilmentPossibleError) => {
       expect(error.productIds).toEqual([productId]);
+      expect(error.reason).toBe('RESERVATION_RACE_LOST');
     });
 
     for (const warehouseId of [warehouseAId, warehouseBId]) {

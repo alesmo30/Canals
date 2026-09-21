@@ -75,6 +75,33 @@ export interface AllocationResult {
 (`WarehouseCandidate`, `warehouse-selection.repository.ts:15-19`), no hace falta
 volver a consultar.
 
+### Extensión de `NoFulfilmentPossibleError` (P1, aditiva — Paso 8)
+
+```ts
+// src/application/allocation/errors.ts
+export type NoFulfilmentPossibleReason =
+  | 'NO_CANDIDATES'
+  | 'RESERVATION_RACE_LOST';
+
+export class NoFulfilmentPossibleError extends Error {
+  constructor(
+    public readonly productIds: string[],
+    public readonly reason: NoFulfilmentPossibleReason, // nuevo
+  ) { ... }
+}
+```
+
+`specs/02-fulfilment-core.md` original colapsaba ambos casos (ningún candidato
+calificó vs. todos perdieron la carrera bajo lock) en el mismo error con el
+mismo status (`422`). `phases/04-order-creation-saga.md` (R4.5) pedía dos
+statuses distintos (`422`/`409`) para estos dos casos desde el plan original.
+P4 restaura esa distinción agregando `reason` — parámetro aditivo del
+constructor, `productIds` no cambia. Los dos sitios en
+`allocate-inventory.use-case.ts` (`candidates.length === 0` y el loop de
+failover agotado) ya pasan el valor correcto. Ver `specs/02-fulfilment-core.md`,
+Cross-phase notes, pa el detalle completo de por qué se reabre este archivo ya
+mergeado.
+
 ### DTOs de request (`src/infrastructure/http/dto/`)
 
 ```ts
@@ -280,7 +307,7 @@ sigue funcionando).
 - [ ] Tarjeta `...0002` → `402`, la orden queda `PAYMENT_FAILED`, el stock vuelve a `quantity_available`.
 - [ ] Tarjeta `...0004` → `502`, la orden queda `PENDING_PAYMENT`, la reserva sigue intacta.
 - [ ] `docker stop payments-mock` → `502`, reserva intacta, el circuit breaker se abre.
-- [ ] Un pedido insatisfacible (`NoFulfilmentPossibleError`) devuelve `422` nombrando los `productId` no cubiertos, y no persiste **nada** (ni `orders` ni `order_items` — sí queda la fila `idempotency_keys` marcada `COMPLETED`, que no cuenta como "orden").
+- [ ] Un pedido insatisfacible por `NoFulfilmentPossibleError(reason: 'NO_CANDIDATES')` devuelve `422` nombrando los `productId` no cubiertos; por `reason: 'RESERVATION_RACE_LOST'` devuelve `409` con el mismo detalle. Ninguno de los dos persiste **nada** (ni `orders` ni `order_items` — sí queda la fila `idempotency_keys` marcada `COMPLETED`, que no cuenta como "orden").
 - [ ] Cada una de las 7 filas de error de R4.5 es reproducible por `curl` con los datos sembrados por `npm run seed`.
 - [ ] Un pedido exitoso produce exactamente un `shipment`, de forma asíncrona, visible en ~1 s.
 - [ ] Ningún número de tarjeta aparece en ninguna respuesta, log o traza.
@@ -303,6 +330,8 @@ sigue funcionando).
 - **Sí:** `order_number` se genera una sola vez, antes del loop de failover de `AllocateInventoryUseCase` — igual que `orderId`. Debe mantenerse estable si el primer candidato falla y se reintenta con el segundo.
 - **Sí:** `idempotency_keys` se marca `COMPLETED` (con `response_status`/`response_body`) para **cualquier** desenlace final del request, incluido un `502` por pago `UNKNOWN`. El enum `idempotency_state` solo tiene `IN_PROGRESS`/`COMPLETED` — no existe un tercer estado "fallido pero reintentable" — y el handoff de SPEC 03 ya asume que repetir la misma key debe replayar ese `502`, no reabrir el cobro.
 - **No:** limpieza/borrado de `idempotency_keys` vencidas en este spec. Es trabajo del reaper de P6; aquí solo se verifica `expires_at` en el lookup.
+- **Sí:** extender `NoFulfilmentPossibleError` de P1 con `reason: 'NO_CANDIDATES' | 'RESERVATION_RACE_LOST'` (cambio aditivo al constructor, cross-fase, documentado aquí y en `specs/02-fulfilment-core.md`, Cross-phase notes). Descubierto al construir `problem-details.filter.ts` (Paso 8): P1 colapsaba ambos casos en el mismo error con el mismo status (`422`), pero `phases/04-order-creation-saga.md` (R4.5) pedía dos statuses distintos (`422`/`409`) desde el plan original — sin el campo, P4 no puede distinguir cuál de los dos pasó. Autorizado explícitamente para reabrir un archivo de P1 ya mergeado.
+- **No:** dejar ambos casos colapsados en `422` (la decisión original de `specs/02-fulfilment-core.md`). Aunque evitaba tocar P1, perdía la distinción que R4.5 pedía desde el inicio y que sigue siendo información real y útil para quien depura un `422` recurrente (agotamiento genuino de stock) vs. un `409` (contención puntual, reintentable).
 - **No:** soporte de países distintos a `US` en `shippingAddress`. FR-1 fija `country: "US"` — el geocoding y el cálculo de distancia asumen ese único mercado; ampliarlo es decisión de otro spec.
 
 ## Risks
