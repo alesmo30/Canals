@@ -13,6 +13,7 @@ import { PgBoss } from 'pg-boss';
 
 import { JobRunner } from './job-runner';
 import { PgBossEventPublisher } from './pg-boss-event-publisher';
+import { OrderConfirmedPayload } from './event-routing';
 import { QUEUE_TOPOLOGY, setupQueues } from './queue-setup';
 import {
   correlationStorage,
@@ -83,13 +84,23 @@ describe('correlation and tracing (integration)', () => {
     const orderId = randomUUID();
     const observedCorrelationIds: (string | undefined)[] = [];
 
-    const handlers: JobHandler<unknown>[] = QUEUE_TOPOLOGY.map(({ queue }) => ({
-      queue,
-      handle: () => {
-        observedCorrelationIds.push(getCorrelationId());
-        return Promise.resolve();
-      },
-    }));
+    // Filtered by this run's own orderId: the same real queue names are
+    // shared with every other *.integration.spec.ts file, some of which
+    // leave a job unconsumed (e.g. pg-boss-event-publisher.integration.spec.ts's
+    // "still enqueues without a tx" case) — an unfiltered handler here
+    // would also observe those leftovers when the whole suite runs
+    // together, not just the job this test itself published.
+    const handlers: JobHandler<OrderConfirmedPayload>[] = QUEUE_TOPOLOGY.map(
+      ({ queue }) => ({
+        queue,
+        handle: (payload) => {
+          if (payload.orderId === orderId) {
+            observedCorrelationIds.push(getCorrelationId());
+          }
+          return Promise.resolve();
+        },
+      }),
+    );
     const runner = new JobRunner(boss, handlers, FAST_CONFIG_SERVICE);
     await runner.start();
 
@@ -111,11 +122,13 @@ describe('correlation and tracing (integration)', () => {
     );
     requestSpan.end();
 
+    let ownJobIds: string[] = [];
     await waitUntil(async () => {
-      const rows: { state: string }[] = await AppDataSource.query(
-        `select state from pgboss.job where data->'payload'->>'orderId' = $1`,
+      const rows: { id: string; state: string }[] = await AppDataSource.query(
+        `select id, state from pgboss.job where data->'payload'->>'orderId' = $1`,
         [orderId],
       );
+      ownJobIds = rows.map((row) => row.id);
       return (
         rows.length === 3 && rows.every((row) => row.state === 'completed')
       );
@@ -130,9 +143,18 @@ describe('correlation and tracing (integration)', () => {
       observedCorrelationIds.every((id) => id === requestCorrelationId),
     ).toBe(true);
 
+    // Filtered by this run's own job ids (`messaging.message.id`,
+    // job-runner.ts) — the same real queues are shared with every other
+    // *.integration.spec.ts file, so an unfiltered read here would also
+    // pick up job spans another test's leftover job produced when the
+    // whole suite runs together.
     const jobSpans = exporter
       .getFinishedSpans()
-      .filter((span) => span.name.startsWith('job '));
+      .filter(
+        (span) =>
+          span.name.startsWith('job ') &&
+          ownJobIds.includes(span.attributes['messaging.message.id'] as string),
+      );
     expect(jobSpans).toHaveLength(3);
     expect(new Set(jobSpans.map((span) => span.name))).toEqual(
       new Set(QUEUE_TOPOLOGY.map((entry) => `job ${entry.queue}`)),

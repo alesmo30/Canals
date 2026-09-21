@@ -1,8 +1,18 @@
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
+import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { PgInstrumentation } from '@opentelemetry/instrumentation-pg';
 import { PinoInstrumentation } from '@opentelemetry/instrumentation-pino';
+
+/**
+ * SPEC 04 Named constants — observability: how often the DLQ gauge
+ * (`dlq-gauge.ts`) is sampled. Drives the metrics pipeline's own export
+ * interval, since an OTel observable instrument is only ever read when
+ * its reader asks for a collection.
+ */
+export const DLQ_GAUGE_INTERVAL_MS = 60_000;
 
 /**
  * SPEC 04 Scope: "OpenTelemetry Node SDK with auto-instrumentation for
@@ -26,6 +36,20 @@ const isWorker = process.argv[1]?.includes('main.worker') ?? false;
 const sdk = new NodeSDK({
   serviceName: isWorker ? 'canals-worker' : 'canals-api',
   traceExporter: new OTLPTraceExporter(),
+  // Metrics only on the worker: it's the only process that registers the
+  // DLQ gauge (dlq-gauge.ts, called from JobRunner.start()). The api
+  // never creates an observable instrument, so a reader here would just
+  // export empty collections on a timer for nothing.
+  ...(isWorker
+    ? {
+        metricReaders: [
+          new PeriodicExportingMetricReader({
+            exporter: new OTLPMetricExporter(),
+            exportIntervalMillis: DLQ_GAUGE_INTERVAL_MS,
+          }),
+        ],
+      }
+    : {}),
   instrumentations: [
     new HttpInstrumentation(),
     new PgInstrumentation(),

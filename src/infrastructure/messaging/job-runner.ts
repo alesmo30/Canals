@@ -13,6 +13,7 @@ import { PG_BOSS } from './pg-boss.provider';
 import { JobBody } from './job-envelope';
 import { AppConfig } from '../config/env.schema';
 import { correlationStorage } from '../observability/correlation';
+import { registerDlqGauge } from '../observability/dlq-gauge';
 import { JOB_HANDLERS, JobHandler } from '../../application/jobs/job-handler';
 
 /**
@@ -46,6 +47,8 @@ export const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 25_000;
  * `attempt`, `retryLimit`, `error`, `correlationId` — and re-thrown so
  * pg-boss's own retry/dead-letter transition still runs; this warn line is
  * the per-attempt failure history pg-boss itself does not keep (R3.5).
+ * `start()` also registers the DLQ gauge (`dlq-gauge.ts`) — the worker is
+ * the only process with a `PgBoss` instance worth sampling.
  */
 @Injectable()
 export class JobRunner implements OnApplicationShutdown {
@@ -59,6 +62,8 @@ export class JobRunner implements OnApplicationShutdown {
   ) {}
 
   async start(): Promise<void> {
+    registerDlqGauge(this.boss);
+
     // SPEC 04 step 1 finding: `notify: true` on a queue only changes which
     // *backstop* poll applies once the LISTEN/NOTIFY listener is up
     // (`notifyPollingIntervalSeconds`) — the base `pollingIntervalSeconds`
@@ -91,6 +96,10 @@ export class JobRunner implements OnApplicationShutdown {
             links: parentSpanContext
               ? [{ context: parentSpanContext }]
               : undefined,
+            attributes: {
+              'messaging.destination.name': handler.queue,
+              'messaging.message.id': job.id,
+            },
           });
 
           await correlationStorage.run({ correlationId }, () =>
