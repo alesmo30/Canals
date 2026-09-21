@@ -56,12 +56,11 @@ services:
       interval: 5s
       retries: 10
 
-  # --- P3 adds here: lgtm (OTel/Grafana) ---
-  # lgtm:
-  #   image: grafana/otel-lgtm
-  #   ports:
-  #     - '3001:3000'   # Grafana UI (3000 is taken by the api)
-  #     - '4318:4318'   # OTLP/HTTP ingest
+  lgtm:
+    image: grafana/otel-lgtm
+    ports:
+      - '3001:3000' # Grafana UI (3000 is taken by the api)
+      - '4318:4318' # OTLP/HTTP ingest
 
   api:
     build: .
@@ -76,6 +75,10 @@ services:
       # GEOAPIFY_API_KEY=<your key>
       GEOCODING_DRIVER: ${GEOCODING_DRIVER:-static}
       GEOAPIFY_API_KEY: ${GEOAPIFY_API_KEY:-}
+      # SPEC 04 step 10: only the compose stack turns this on — it exists
+      # so P3 can demonstrate the full HTTP -> queue -> worker -> Grafana
+      # path before P4's POST /orders exists (Decisions).
+      ENABLE_DEV_ENDPOINTS: 'true'
     depends_on:
       seed: { condition: service_completed_successfully }
       payments-mock: { condition: service_healthy }
@@ -96,6 +99,11 @@ services:
       interval: 5s
       retries: 10
       start_period: 10s
+    # SPEC 04 step 10 (R3.3): gives JobRunner.onApplicationShutdown time to
+    # let an in-flight job finish (boss.stop({ graceful: true })) before
+    # compose sends SIGKILL — the default 10s grace period can cut a
+    # handler's own HTTP call (payments-mock, geocoding) short.
+    stop_grace_period: 30s
     depends_on:
       seed: { condition: service_completed_successfully }
 
