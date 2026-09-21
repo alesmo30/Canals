@@ -419,7 +419,11 @@ verified before the next one starts.
       does not keep.
 - [ ] `order.confirmed` published for a non-existent `orderId` lands
       `shipment.create` in its DLQ with a foreign-key violation as the last
-      error, while the other two queues complete.
+      error, while the other two queues complete. *(Deviation: the last
+      error is a `NOT NULL` violation on `warehouse_id`, not a foreign-key
+      violation on `order_id` — Postgres checks `NOT NULL` before `FOREIGN
+      KEY` and the missing-order subquery resolves `NULL` either way. See
+      Decisions, "Retries and dead-letter queues".)*
 - [ ] A job sitting in a DLQ is still there after pg-boss maintenance has run:
       DLQ retention is explicit, not the default.
 - [ ] Grafana shows `queue.dlq.size` at 1 for `shipment.create.dlq` and 0 for
@@ -623,6 +627,25 @@ deleted after this section was written.
   mechanism deterministically; the realistic foreign-key scenario proves the
   same mechanism **and** the fan-out isolation, with a real PostgreSQL error
   rather than an invented `throw`.
+- **Deviation, step 6 — the realistic scenario's error is `NOT NULL`, not a
+  foreign-key violation.** `ShipmentService`'s `warehouse_id` comes from a
+  subquery against `orders` (Scope: "warehouse_id read from the order"); for
+  an `orderId` that does not exist, that subquery returns `NULL` — the exact
+  same value it returns for an existing order with no `warehouse_id`.
+  Verified directly in psql: Postgres checks `NOT NULL` constraints
+  (`ExecConstraints`, before the row is even built) ahead of `FOREIGN KEY`
+  triggers (which only run on a row already inserted), so the `NOT NULL`
+  violation on `warehouse_id` always wins when both would otherwise fire —
+  there is no query shape that reaches `order_id`'s foreign key here without
+  first resolving a non-null `warehouse_id`, which a genuinely missing order
+  can never supply. Both this spec's own Implementation plan step 6 and its
+  Acceptance criteria describe this scenario's last error as "a foreign-key
+  violation"; SPEC 04 step 6's test instead asserts the `NOT NULL` text that
+  Postgres actually produces. The mechanism this scenario exists to prove —
+  fails without a partial row, `customer.notify`/`analytics.record`
+  unaffected — holds regardless of which `NOT NULL` constraint reports it;
+  only the specific wording of the acceptance criteria is superseded by this
+  note.
 
 **Correlation and tracing**
 

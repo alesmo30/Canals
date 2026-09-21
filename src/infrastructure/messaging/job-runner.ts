@@ -5,7 +5,7 @@ import {
   OnApplicationShutdown,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Job, PgBoss } from 'pg-boss';
+import type { JobWithMetadata, PgBoss } from 'pg-boss';
 
 import { PG_BOSS } from './pg-boss.provider';
 import { JobBody } from './job-envelope';
@@ -23,8 +23,12 @@ export const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 25_000;
  * Started from `main.worker.ts` (`await app.get(JobRunner).start()`,
  * `infrastructure.md` §3). Registers one `boss.work()` per handler in
  * `JOB_HANDLERS`, dispatching each job to that handler's `payload` only —
- * `meta` (correlationId/traceparent restoration, the `job <queue>` span)
- * is step 7's addition.
+ * restoring `correlationId`/`traceparent` into the logging/trace context
+ * (AsyncLocalStorage, the `job <queue>` span) is step 7's addition. A
+ * thrown error is logged here — `queue`, `jobId`, `attempt`, `retryLimit`,
+ * `error`, `correlationId` — and re-thrown so pg-boss's own retry/dead-letter
+ * transition still runs; this warn line is the per-attempt failure history
+ * pg-boss itself does not keep (R3.5).
  */
 @Injectable()
 export class JobRunner implements OnApplicationShutdown {
@@ -50,15 +54,28 @@ export class JobRunner implements OnApplicationShutdown {
     );
 
     for (const handler of this.handlers) {
-      await this.boss.work<JobBody>(
+      await this.boss.work(
         handler.queue,
         {
           pollingIntervalSeconds,
           notifyPollingIntervalSeconds: pollingIntervalSeconds,
+          includeMetadata: true,
         },
-        async (jobs: Job<JobBody>[]) => {
+        async (jobs: JobWithMetadata<JobBody>[]) => {
           const [job] = jobs;
-          await handler.handle(job.data.payload);
+          try {
+            await handler.handle(job.data.payload);
+          } catch (error: unknown) {
+            this.logger.warn({
+              queue: handler.queue,
+              jobId: job.id,
+              attempt: job.retryCount + 1,
+              retryLimit: job.retryLimit,
+              error: error instanceof Error ? error.message : String(error),
+              correlationId: job.data.meta.correlationId,
+            });
+            throw error;
+          }
         },
       );
       this.logger.log({ queue: handler.queue, pollingIntervalSeconds });
