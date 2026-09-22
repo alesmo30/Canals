@@ -18,6 +18,8 @@ export interface AllocateInventoryCommand {
 export interface AllocationResult {
   orderId: string;
   warehouseId: string;
+  name: string;
+  distanceMeters: number;
 }
 
 /**
@@ -46,7 +48,7 @@ export class AllocateInventoryUseCase {
     );
 
     if (candidates.length === 0) {
-      throw new NoFulfilmentPossibleError(requestedProductIds);
+      throw new NoFulfilmentPossibleError(requestedProductIds, 'NO_CANDIDATES');
     }
 
     // Generated once, before the first attempt, and reused across every
@@ -70,7 +72,12 @@ export class AllocateInventoryUseCase {
           });
         });
 
-        return { orderId, warehouseId: candidate.warehouseId };
+        return {
+          orderId,
+          warehouseId: candidate.warehouseId,
+          name: candidate.name,
+          distanceMeters: candidate.distanceMeters,
+        };
       } catch (error: unknown) {
         if (error instanceof InsufficientStockError) {
           error.productIds.forEach((productId) =>
@@ -82,6 +89,9 @@ export class AllocateInventoryUseCase {
       }
     }
 
-    throw new NoFulfilmentPossibleError(Array.from(unmetProductIds));
+    throw new NoFulfilmentPossibleError(
+      Array.from(unmetProductIds),
+      'RESERVATION_RACE_LOST',
+    );
   }
 }

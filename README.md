@@ -303,15 +303,15 @@ specs/04-queue-worker-observability.md. A real `pg-boss` adapter behind
 the frozen `EventPublisher` port: `order.confirmed` fans out to three
 queues in one transaction, a standalone worker consumes them (the api
 never does), and every request and job is a trace in Grafana sharing one
-`correlationId`. `POST /internal/events/order-confirmed` is a
-development-only stand-in for P4's `POST /orders` — the only way to
-trigger this flow before the saga exists — registered only when
-`ENABLE_DEV_ENDPOINTS=true` (compose's default).
+`correlationId`. `POST /internal/events/order-confirmed` was a
+development-only stand-in for P4's `POST /orders`, used to trigger this
+flow before the saga existed; P4 deleted it — `POST /orders` (below)
+publishes `order.confirmed` for real now.
 
 ### Queue topology
 
 ```
-POST /internal/events/order-confirmed
+POST /orders
               │  order.confirmed
               ▼
    EVENT_ROUTING fan-out (event-routing.ts)
