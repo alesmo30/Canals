@@ -5,6 +5,7 @@ import { TerminusModule } from '@nestjs/terminus';
 import { SharedModule } from './shared.module';
 import { AllocateInventoryUseCase } from '../application/allocation/allocate-inventory.use-case';
 import { InventoryService } from '../application/allocation/inventory.service';
+import { CreateOrderIdempotentService } from '../application/orders/create-order-idempotent.service';
 import { CreateOrderUseCase } from '../application/orders/create-order.use-case';
 import { HealthController } from '../infrastructure/health/health.controller';
 import { PgBossHealthIndicator } from '../infrastructure/health/pg-boss.health-indicator';
@@ -25,6 +26,7 @@ import { WarehouseSelectionRepository } from '../infrastructure/database/reposit
     InventoryService,
     AllocateInventoryUseCase,
     CreateOrderUseCase,
+    CreateOrderIdempotentService,
     { provide: APP_FILTER, useClass: ProblemDetailsFilter },
   ],
 })
