@@ -12,19 +12,14 @@ import {
 import type { CreateOrderCommand } from './create-order.types';
 import { buildChargeIdempotencyKey } from './charge-idempotency-key';
 import { generateOrderNumber } from './helpers/order-number.helpers';
+import { OrderSettlementService } from './order-settlement.service';
 import {
   AllocateInventoryUseCase,
   AllocationResult,
 } from '../allocation/allocate-inventory.use-case';
 import { OnBeforeReserve } from '../allocation/allocation.types';
-import { InventoryService } from '../allocation/inventory.service';
 import { Order } from '../../domain/entities/order';
 import { OrderItem } from '../../domain/entities/order-item';
-import { EVENT_PUBLISHER } from '../../domain/ports/event-publisher';
-import type {
-  EventPublisher,
-  TransactionContext,
-} from '../../domain/ports/event-publisher';
 import { GEOCODING_PROVIDER } from '../../domain/ports/geocoding-provider';
 import type { GeocodingProvider } from '../../domain/ports/geocoding-provider';
 import { PAYMENT_GATEWAY } from '../../domain/ports/payment-gateway';
@@ -43,10 +38,14 @@ import {
   orderItemToPersistence,
   orderToPersistence,
 } from '../../infrastructure/database/mappers/order.mapper';
-import type { OrderConfirmedPayload } from '../../infrastructure/messaging/event-routing';
 
 /** A second attempt is out of scope today (SPEC 03's handoff) — always 1. */
 const FIRST_PAYMENT_ATTEMPT = 1;
+
+/** SPEC 07 — the only two `ChargeResult.status` values that mean the provider gave a final answer. */
+function isDefinitiveOutcome(status: ChargeResult['status']): boolean {
+  return status === 'CAPTURED' || status === 'DECLINED';
+}
 
 /**
  * Phase 1's own result. `order`/`items` are the domain objects Phase 1
@@ -90,13 +89,11 @@ export class CreateOrderUseCase {
   constructor(
     private readonly dataSource: DataSource,
     private readonly allocateInventoryUseCase: AllocateInventoryUseCase,
-    private readonly inventoryService: InventoryService,
+    private readonly orderSettlementService: OrderSettlementService,
     @Inject(GEOCODING_PROVIDER)
     private readonly geocodingProvider: GeocodingProvider,
     @Inject(PAYMENT_GATEWAY)
     private readonly paymentGateway: PaymentGateway,
-    @Inject(EVENT_PUBLISHER)
-    private readonly eventPublisher: EventPublisher,
   ) {}
 
   async execute(command: CreateOrderCommand): Promise<CreateOrderResult> {
@@ -279,7 +276,11 @@ export class CreateOrderUseCase {
       cardBrand: chargeResult.cardBrand,
       failureCode: chargeResult.failureCode,
       rawResponse: chargeResult.rawResponse,
-      settledAt: new Date(),
+      // SPEC 07: settled_at only for a definitive outcome — R6.2's
+      // `settled_at IS NULL` query is how reconciliation finds the
+      // UNKNOWN payments it exists to resolve; setting it here for every
+      // outcome would make that query miss exactly those rows.
+      settledAt: isDefinitiveOutcome(chargeResult.status) ? new Date() : null,
       updatedAt: new Date(),
     });
 
@@ -288,68 +289,41 @@ export class CreateOrderUseCase {
 
   /**
    * Phase 3 (settle) — branches on the outcome table
-   * (specs/05-order-creation-saga.md, R4.3). `warehouseId` is never
-   * null here: Phase 1 only returns after a candidate's reserve()
-   * succeeded and set it.
+   * (specs/05-order-creation-saga.md, R4.3), delegating the actual
+   * transition/inventory/event sequence to `OrderSettlementService`
+   * (SPEC 07) — the same one the reaper and reconciliation call, guarded
+   * by its own row lock so this phase can never overwrite a settlement
+   * one of those jobs already made. Called without `payment`: Phase 2
+   * already wrote that row.
    */
   private async settleOrder(
     params: SettleOrderParams,
   ): Promise<CreateOrderResult> {
     const { order, items, allocation, payment, chargeResult } = params;
-    const warehouseId = order.getWarehouseId()!;
-    const productIds = items.map((item) => item.getProductId());
 
     if (chargeResult.status === 'CAPTURED') {
-      await this.dataSource.transaction(async (manager) => {
-        await this.inventoryService.commit(manager, {
+      const { order: settledOrder } =
+        await this.orderSettlementService.confirmCaptured({
           orderId: order.getId(),
-          warehouseId,
-          productIds,
         });
-
-        order.markPaid();
-        order.confirm();
-        await manager
-          .getRepository(OrderOrmEntity)
-          .save(orderToPersistence(order));
-
-        const tx: TransactionContext = {
-          executeSql: (sql, values) => manager.query(sql, values),
-        };
-        await this.eventPublisher.publish(
-          {
-            type: 'order.confirmed',
-            payload: {
-              orderId: order.getId(),
-              occurredAt: new Date().toISOString(),
-            } satisfies OrderConfirmedPayload,
-          },
-          tx,
-        );
-      });
-
-      return { order, items, allocation, payment, chargeResult };
+      return { order: settledOrder, items, allocation, payment, chargeResult };
     }
 
     if (chargeResult.status === 'DECLINED') {
-      await this.dataSource.transaction(async (manager) => {
-        await this.inventoryService.release(manager, {
-          orderId: order.getId(),
-          warehouseId,
-          productIds,
-        });
-
-        order.markPaymentFailed();
-        await manager
-          .getRepository(OrderOrmEntity)
-          .save(orderToPersistence(order));
+      await this.orderSettlementService.failDeclined({
+        orderId: order.getId(),
       });
-
-      throw new PaymentDeclinedError(chargeResult.failureCode);
+      throw new PaymentDeclinedError({
+        orderId: order.getId(),
+        failureCode: chargeResult.failureCode,
+      });
     }
 
     // UNKNOWN: leave PENDING_PAYMENT, reservation intact — P6's
     // reconciliation decides its fate (specs/05, Handoff from SPEC 03).
-    throw new PaymentProviderUnavailableError(chargeResult.failureCode);
+    throw new PaymentProviderUnavailableError({
+      orderId: order.getId(),
+      failureCode: chargeResult.failureCode,
+    });
   }
 }

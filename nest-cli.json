@@ -5,6 +5,7 @@
   "compilerOptions": {
     "deleteOutDir": true,
     "assets": ["infrastructure/database/sql/**/*.sql"],
-    "watchAssets": true
+    "watchAssets": true,
+    "plugins": ["@nestjs/swagger"]
   }
 }

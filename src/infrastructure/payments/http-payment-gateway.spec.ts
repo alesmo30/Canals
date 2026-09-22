@@ -14,6 +14,7 @@ interface FakeServer {
   url: string;
   requestCount: () => number;
   idempotencyKeys: () => (string | undefined)[];
+  requestUrls: () => string[];
   close: () => Promise<void>;
 }
 
@@ -23,8 +24,10 @@ function startFakeServer(
 ): Promise<FakeServer> {
   return new Promise((resolve) => {
     const keys: (string | undefined)[] = [];
+    const urls: string[] = [];
     const server = createServer((req, res) => {
       keys.push(req.headers['idempotency-key'] as string | undefined);
+      urls.push(req.url ?? '');
       handler(req, res);
     });
     server.listen(port, '127.0.0.1', () => {
@@ -33,6 +36,7 @@ function startFakeServer(
         url: `http://127.0.0.1:${port}`,
         requestCount: () => keys.length,
         idempotencyKeys: () => keys,
+        requestUrls: () => urls,
         close: () =>
           new Promise((resolveClose) => {
             server.closeAllConnections();
@@ -358,6 +362,60 @@ describe('HttpPaymentGateway.getStatus()', () => {
       status: 'UNKNOWN',
       failureCode: 'PROVIDER_ERROR',
     });
+  });
+
+  it('maps a 200 with an unrecognised status body to UNKNOWN/INVALID_REQUEST', async () => {
+    server = await startFakeServer(
+      jsonHandler(200, { id: 'ch_weird', status: 'weird' }),
+    );
+    const gateway = new HttpPaymentGateway({
+      baseUrl: server.url,
+      timeoutMs: TEST_TIMEOUT_MS,
+      retryPolicy: { baseDelayMs: 0 },
+    });
+
+    await expect(
+      gateway.getStatus('order:status:weird'),
+    ).resolves.toMatchObject({
+      status: 'UNKNOWN',
+      failureCode: 'INVALID_REQUEST',
+    });
+  });
+
+  it.each([400, 401, 429])(
+    'maps a %d response to UNKNOWN/INVALID_REQUEST',
+    async (httpStatus) => {
+      server = await startFakeServer(
+        jsonHandler(httpStatus, { error: 'provider says no' }),
+      );
+      const gateway = new HttpPaymentGateway({
+        baseUrl: server.url,
+        timeoutMs: TEST_TIMEOUT_MS,
+        retryPolicy: { baseDelayMs: 0 },
+      });
+
+      await expect(
+        gateway.getStatus('order:status:bad'),
+      ).resolves.toMatchObject({
+        status: 'UNKNOWN',
+        failureCode: 'INVALID_REQUEST',
+      });
+    },
+  );
+
+  it('URL-encodes an idempotency key containing reserved characters', async () => {
+    server = await startFakeServer(jsonHandler(404, { error: 'not_found' }));
+    const gateway = new HttpPaymentGateway({
+      baseUrl: server.url,
+      timeoutMs: TEST_TIMEOUT_MS,
+      retryPolicy: { baseDelayMs: 0 },
+    });
+
+    await gateway.getStatus('order:abc:attempt:1');
+
+    expect(server.requestUrls()).toEqual([
+      `/charge/${encodeURIComponent('order:abc:attempt:1')}`,
+    ]);
   });
 });
 

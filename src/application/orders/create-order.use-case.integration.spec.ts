@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 
 import { PgBoss } from 'pg-boss';
 
+import { OrderSettlementService } from './order-settlement.service';
 import { CreateOrderUseCase } from './create-order.use-case';
 import { InventoryService } from '../allocation/inventory.service';
 import { AllocateInventoryUseCase } from '../allocation/allocate-inventory.use-case';
@@ -20,6 +21,7 @@ import { WarehouseOrmEntity } from '../../infrastructure/database/entities/wareh
 import { WarehouseSelectionRepository } from '../../infrastructure/database/repositories/warehouse-selection.repository';
 
 const DECLINED_CARD_NUMBER = '4000000000000002';
+const TIMEOUT_CARD_NUMBER = '4000000000000004';
 
 /**
  * Integration test — DATABASE_URL, PAYMENTS_URL (`payments-mock`
@@ -47,10 +49,13 @@ describe('CreateOrderUseCase (integration) — full saga', () => {
         new InventoryService(),
         AppDataSource,
       ),
-      new InventoryService(),
+      new OrderSettlementService(
+        AppDataSource,
+        new InventoryService(),
+        new PgBossEventPublisher(boss),
+      ),
       new StaticGeocodingProvider(),
       new HttpPaymentGateway({ baseUrl: process.env.PAYMENTS_URL! }),
-      new PgBossEventPublisher(boss),
     );
 
     const customer = await AppDataSource.getRepository(CustomerOrmEntity).save({
@@ -134,6 +139,8 @@ describe('CreateOrderUseCase (integration) — full saga', () => {
     expect(result.payment.idempotencyKey).toBe(
       `order:${result.order.getId()}:attempt:1`,
     );
+    // SPEC 07: settled_at is set for a definitive outcome.
+    expect(result.payment.settledAt).not.toBeNull();
 
     // Phase 3
     expect(result.order.getStatus()).toBe('CONFIRMED');
@@ -198,5 +205,43 @@ describe('CreateOrderUseCase (integration) — full saga', () => {
       PaymentOrmEntity,
     ).findOneByOrFail({ orderId: orders[0].id });
     expect(persistedPayment.status).toBe('DECLINED');
+    // SPEC 07: settled_at is set for a definitive outcome.
+    expect(persistedPayment.settledAt).not.toBeNull();
   });
+
+  it('UNKNOWN: leaves payments.settled_at NULL, order stays PENDING_PAYMENT, and throws PaymentProviderUnavailableError', async () => {
+    const { product, warehouse } = await makeFixture(1800);
+
+    const promise = useCase.execute({
+      customerId,
+      shippingAddress: {
+        recipient: 'Ada Lovelace',
+        line1: '1 Broadway',
+        city: 'New York',
+        state: 'NY',
+        country: 'US',
+      },
+      lines: [{ productId: product.id, quantity: 1 }],
+      cardNumber: TIMEOUT_CARD_NUMBER,
+      idempotencyKey: randomUUID(),
+    });
+
+    await expect(promise).rejects.toMatchObject({
+      name: 'PaymentProviderUnavailableError',
+    });
+
+    const orders = await AppDataSource.getRepository(OrderOrmEntity).find({
+      where: { warehouseId: warehouse.id },
+    });
+    expect(orders).toHaveLength(1);
+    expect(orders[0].status).toBe('PENDING_PAYMENT');
+
+    const persistedPayment = await AppDataSource.getRepository(
+      PaymentOrmEntity,
+    ).findOneByOrFail({ orderId: orders[0].id });
+    expect(persistedPayment.status).toBe('UNKNOWN');
+    // SPEC 07: an UNKNOWN outcome leaves settled_at NULL — R6.2's
+    // reconciliation query (`settled_at IS NULL`) is how it finds this row.
+    expect(persistedPayment.settledAt).toBeNull();
+  }, 15_000);
 });

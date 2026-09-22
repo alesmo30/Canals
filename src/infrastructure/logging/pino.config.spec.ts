@@ -69,4 +69,37 @@ describe('pinoOptions', () => {
     const [line] = lines();
     expect(line.correlationId).toBeUndefined();
   });
+
+  it('SPEC 07 Fix A — redacts a card number in a plain message string', () => {
+    const { stream, lines } = createCapturingStream();
+    const logger = pino(pinoOptions, stream);
+
+    logger.info('card 4242424242424242 failed');
+
+    const [line] = lines();
+    expect(line.msg).toBe('card ************4242 failed');
+    expect(JSON.stringify(line)).not.toContain('4242424242424242');
+  });
+
+  it('SPEC 07 Fix A — redacts a secret in a printf-style message alongside a merge object', () => {
+    const { stream, lines } = createCapturingStream();
+    const logger = pino(pinoOptions, stream);
+
+    logger.info({ a: 1 }, 'geocoding failed for ?apiKey=abc');
+
+    const [line] = lines();
+    expect(line.a).toBe(1);
+    expect(line.msg).toBe('geocoding failed for ?apiKey=[REDACTED]');
+  });
+
+  it('SPEC 07 Fix A — redacts a card number in a logged Error message', () => {
+    const { stream, lines } = createCapturingStream();
+    const logger = pino(pinoOptions, stream);
+
+    logger.error(new Error('charge failed for 4242424242424242'));
+
+    const [line] = lines();
+    expect(JSON.stringify(line)).not.toContain('4242424242424242');
+    expect(line.message).toBe('charge failed for ************4242');
+  });
 });

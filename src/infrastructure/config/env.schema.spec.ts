@@ -15,6 +15,19 @@ describe('validateEnv', () => {
     expect(config.GEOCODING_DRIVER).toBe('static');
     expect(config.PGBOSS_POLL_INTERVAL_SECONDS).toBe(15);
     expect(config.RESERVATION_TTL_MINUTES).toBe(15);
+    expect(config.CORS_ORIGINS).toEqual(['http://localhost:3000']);
+  });
+
+  it('splits and trims a comma-separated CORS_ORIGINS', () => {
+    const config = validateEnv({
+      ...validEnv,
+      CORS_ORIGINS: 'https://a.example.com, https://b.example.com',
+    });
+
+    expect(config.CORS_ORIGINS).toEqual([
+      'https://a.example.com',
+      'https://b.example.com',
+    ]);
   });
 
   it('coerces numeric strings from the environment', () => {

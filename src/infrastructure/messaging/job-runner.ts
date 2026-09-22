@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { unlinkSync, writeFileSync } from 'node:fs';
 
 import {
@@ -12,8 +13,10 @@ import { parseTraceParent } from '@opentelemetry/core';
 import type { JobWithMetadata, PgBoss } from 'pg-boss';
 
 import { PG_BOSS } from './pg-boss.provider';
-import { JobBody } from './job-envelope';
+import { JobBody, JobMeta } from './job-envelope';
+import { SCHEDULED_JOBS } from './queue-setup';
 import { AppConfig } from '../config/env.schema';
+import { redact } from '../http/redaction';
 import { correlationStorage } from '../observability/correlation';
 import { registerDlqGauge } from '../observability/dlq-gauge';
 import { WORKER_READINESS_FILE_PATH } from '../health/worker-readiness';
@@ -88,7 +91,16 @@ export class JobRunner implements OnApplicationShutdown {
         },
         async (jobs: JobWithMetadata<JobBody>[]) => {
           const [job] = jobs;
-          const { correlationId, traceparent } = job.data.meta;
+          // SPEC 07: a scheduled job (reservation.reap, payment.reconcile)
+          // is published via boss.schedule(), not PgBossEventPublisher, so
+          // it is born without meta — there is no publishing request to
+          // restore a correlationId/traceparent from.
+          const meta: JobMeta = job.data.meta ?? {
+            correlationId: randomUUID(),
+            traceparent: null,
+            publishedAt: new Date().toISOString(),
+          };
+          const { correlationId, traceparent } = meta;
           const parentSpanContext = traceparent
             ? parseTraceParent(traceparent)
             : null;
@@ -113,7 +125,13 @@ export class JobRunner implements OnApplicationShutdown {
                 const message =
                   error instanceof Error ? error.message : String(error);
                 span.recordException(error as Error);
-                span.setStatus({ code: SpanStatusCode.ERROR, message });
+                // SPEC 07 Fix A: the status message is not a span
+                // attribute, so RedactingSpanExporter does not cover it —
+                // redact it here instead.
+                span.setStatus({
+                  code: SpanStatusCode.ERROR,
+                  message: redact(message),
+                });
                 this.logger.warn({
                   queue: handler.queue,
                   jobId: job.id,
@@ -131,6 +149,14 @@ export class JobRunner implements OnApplicationShutdown {
         },
       );
       this.logger.log({ queue: handler.queue, pollingIntervalSeconds });
+    }
+
+    // SPEC 07 — scheduled jobs (R6.1/R6.2). Called from the worker only
+    // (this file never runs in the api process); pg-boss's own scheduler
+    // dedupes cron ticks across instances of the same process, so this is
+    // safe even with more than one worker.
+    for (const { queue, cron } of SCHEDULED_JOBS) {
+      await this.boss.schedule(queue, cron, { payload: {} });
     }
 
     // Boot is only "done" once every queue has a registered worker and the

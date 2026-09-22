@@ -6,6 +6,8 @@ import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { PgInstrumentation } from '@opentelemetry/instrumentation-pg';
 import { PinoInstrumentation } from '@opentelemetry/instrumentation-pino';
 
+import { RedactingSpanExporter } from './redacting-span-exporter';
+
 /**
  * SPEC 04 Named constants — observability: how often the DLQ gauge
  * (`dlq-gauge.ts`) is sampled. Drives the metrics pipeline's own export
@@ -35,7 +37,7 @@ const isWorker = process.argv[1]?.includes('main.worker') ?? false;
 
 const sdk = new NodeSDK({
   serviceName: isWorker ? 'canals-worker' : 'canals-api',
-  traceExporter: new OTLPTraceExporter(),
+  traceExporter: new RedactingSpanExporter(new OTLPTraceExporter()),
   // Metrics only on the worker: it's the only process that registers the
   // DLQ gauge (dlq-gauge.ts, called from JobRunner.start()). The api
   // never creates an observable instrument, so a reader here would just

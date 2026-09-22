@@ -7,6 +7,10 @@ import { ShipmentCreateHandler } from '../application/jobs/shipment-create.handl
 import { ShipmentService } from '../application/jobs/shipment.service';
 import { CustomerNotifyHandler } from '../application/jobs/customer-notify.handler';
 import { AnalyticsRecordHandler } from '../application/jobs/analytics-record.handler';
+import { ReservationReaperHandler } from '../application/jobs/reservation-reaper.handler';
+import { PaymentReconciliationHandler } from '../application/jobs/payment-reconciliation.handler';
+import { InventoryService } from '../application/allocation/inventory.service';
+import { OrderSettlementService } from '../application/orders/order-settlement.service';
 
 /**
  * SharedModule + job handlers (infrastructure.md §3). main.worker.ts's
@@ -22,18 +26,32 @@ import { AnalyticsRecordHandler } from '../application/jobs/analytics-record.han
     ShipmentCreateHandler,
     CustomerNotifyHandler,
     AnalyticsRecordHandler,
+    InventoryService,
+    OrderSettlementService,
+    ReservationReaperHandler,
+    PaymentReconciliationHandler,
     {
       provide: JOB_HANDLERS,
       inject: [
         ShipmentCreateHandler,
         CustomerNotifyHandler,
         AnalyticsRecordHandler,
+        ReservationReaperHandler,
+        PaymentReconciliationHandler,
       ],
       useFactory: (
         shipmentCreate: ShipmentCreateHandler,
         customerNotify: CustomerNotifyHandler,
         analyticsRecord: AnalyticsRecordHandler,
-      ) => [shipmentCreate, customerNotify, analyticsRecord],
+        reservationReaper: ReservationReaperHandler,
+        paymentReconciliation: PaymentReconciliationHandler,
+      ) => [
+        shipmentCreate,
+        customerNotify,
+        analyticsRecord,
+        reservationReaper,
+        paymentReconciliation,
+      ],
     },
   ],
 })
