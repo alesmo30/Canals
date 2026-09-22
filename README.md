@@ -1,60 +1,154 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Canals
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+An order-fulfilment API: nearest-warehouse selection, an append-only
+inventory ledger proved correct under concurrent load, a three-phase
+order-creation saga with idempotent payment capture, a Postgres-backed
+job queue with retries/DLQs, and the hardening (redaction, reconciliation,
+rate limiting, OpenAPI) that makes the whole thing safe to demo.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Prerequisites
 
-## Description
+- Docker and Docker Compose (the whole stack — Postgres/PostGIS, the api,
+  the worker, a payments mock, Grafana/Tempo — runs in containers; nothing
+  else needs to be installed to get an order through).
+- Node.js `22.x` and npm — only needed on the host to run `npm run demo`,
+  `npm run concurrency-e2e` and the other scripts under `scripts/`, which
+  talk to the dockerized stack over HTTP/Postgres rather than running
+  inside a container themselves.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
+## Quickstart
 
 ```bash
-$ npm install
+git clone https://github.com/alesmo30/Canals.git
+cd Canals
+docker compose up -d --build
 ```
 
-## Compile and run the project
+`--build` matters on every pull, not just the first clone: `docker compose
+up` alone restarts a container from whatever image it already has, it
+does not rebuild it — see *Known limitations*.
+
+Compose brings up Postgres, runs migrations and the seed script (both
+one-shot, gated with `service_completed_successfully` — the api and
+worker do not start until seeding has actually finished), then starts the
+api, the worker and a `payments-mock` test provider. First boot takes
+30-60s depending on image build time.
+
+| Port | Service | What's there |
+|---|---|---|
+| `3000` | `api` | the HTTP API — `POST /orders`, `GET /orders`, `GET /health`, `GET /docs` (OpenAPI) |
+| `4000` | `payments-mock` | the test payment provider (see *The four test cards* below) |
+| `5432` | `postgres` | Postgres/PostGIS |
+| `3001` | `lgtm` (Grafana) | trace/log explorer, no login |
+| `4318` | `lgtm` (OTLP) | trace/metric ingest — internal, not something you curl |
+
+`worker` has no port: it only consumes queues (`shipment.create`,
+`customer.notify`, `analytics.record`, plus the reaper/reconciliation
+cron jobs), it never serves HTTP.
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+curl http://localhost:3000/health
+# {"status":"ok","info":{},"error":{},"details":{}}
 ```
 
-## Run tests
+## Your first order
+
+The seed script (already run by compose) creates a fixed customer and a
+small catalogue with real stock, so this works against a clean clone with
+no setup:
 
 ```bash
-# unit tests
-$ npm run test
+curl -i -X POST http://localhost:3000/orders \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: '"$(uuidgen)" \
+  -d '{
+    "customerId": "c0000000-0000-0000-0000-000000000001",
+    "shippingAddress": {
+      "recipient": "Ada Lovelace",
+      "line1": "1 Canal St",
+      "city": "Newark",
+      "state": "NJ",
+      "country": "US"
+    },
+    "items": [{ "productId": "b0000000-0000-0000-0000-000000000001", "quantity": 1 }],
+    "payment": { "cardNumber": "4242424242424242" }
+  }'
+```
 
-# e2e tests
-$ npm run test:e2e
+`201`, `status: "CONFIRMED"`, and a `warehouse` object naming the DC that
+filled it (Newark DC — it has the stock and it's the nearest one to a
+Newark, NJ address). Replay the exact same body with the exact same
+`Idempotency-Key` and you get the identical `201` back, byte-for-byte,
+with no second charge and no second order — that's what the header is
+for.
 
-# test coverage
-$ npm run test:cov
+## Design
+
+**Why three phases, not one transaction.** `POST /orders` runs Phase 1
+(geocode the address, select the nearest warehouse that can fill every
+line, reserve the stock — one short DB transaction), then Phase 2
+(charge the payment gateway — a network call to a provider that can hang
+for tens of seconds, deliberately *outside* any open transaction: holding
+a row lock across a slow or dead HTTP call would let one stuck order
+starve every other order contending on the same inventory row), then
+Phase 3 (settle: commit or release the reservation, transition the order,
+publish `order.confirmed` — one more short transaction, via
+`OrderSettlementService`). The reaper and reconciliation jobs
+(`specs/07-hardening-demo.md`) call that same `OrderSettlementService`
+for the two ways Phase 2 can end ambiguously — the provider times out, or
+the process dies between charging and settling — so there is exactly one
+implementation of "settle this order," row-locked, everywhere.
+
+**Why warehouse selection is one statement.** `select-warehouse.sql`
+resolves which warehouses can fill every line of the order (an `eligible`
+CTE) before it ever touches distance, then sorts only that small,
+already-qualified set by geodesic distance. Doing it as "find candidates,
+then rank them" in application code would mean reading full warehouse
+rows into Node before knowing most of them can't even fill the order; a
+single statement lets Postgres discard the ineligible ones without ever
+materialising them. The captured `EXPLAIN` plan and why the planner
+doesn't just walk the GiST location index directly are in *P1 —
+Fulfilment core* below.
+
+**Why the queue lives in Postgres.** `pg-boss` stores every job as a row
+in the same database the order was written to. `order.confirmed`'s
+fan-out (`shipment.create`, `customer.notify`, `analytics.record`) is
+three job inserts in the *same transaction* as the order's own state
+transition — a job exists if and only if the order state it describes
+was actually committed, with no second system (Redis, RabbitMQ, SQS) to
+keep consistent with Postgres by hand, and no outbox-polling relay in
+between. The cost is a worker that polls (every
+`PGBOSS_POLL_INTERVAL_SECONDS`, backed by `LISTEN`/`NOTIFY` for low
+latency in between polls) rather than a push-based broker — a deliberate
+trade documented in `specs/04-queue-worker-observability.md`.
+
+## Commands
+
+```bash
+docker compose up -d --build      # start (or rebuild + restart) the whole stack
+docker compose logs -f api worker # tail application logs
+docker compose down -v            # tear down, including the Postgres volume
+
+npm install                       # only needed to run the scripts below locally
+npm run lint / build              # rm -rf dist first if a stale build confuses lint's glob
+npm run test:unit                 # no DB needed
+npm run test:integration          # needs a migrated Postgres reachable
+npm run test:e2e                  # needs the full stack reachable
+npm run concurrency-check         # P1's ledger proof, in-process — `-- 50` for N=50
+npm run concurrency-e2e           # P6's ledger proof, through real HTTP — see below
+npm run payments-check            # exercises all four payments-mock cards through HttpPaymentGateway
+npm run events-check              # publishes order.confirmed, waits for the 3 jobs + 1 shipment it produces
+npm run demo                      # walks every scenario below end-to-end, twice green on a fresh `docker compose up`
+npm run verify                    # everything above, in the order CI expects
+```
+
+The scripts under `scripts/` run on the host against the dockerized stack
+over `DATABASE_URL`/`PAYMENTS_URL`/etc, not inside a container — copy
+`.env.example` to `.env` and export it first:
+
+```bash
+cp .env.example .env
+set -a && source .env && set +a
 ```
 
 ## P1 — Fulfilment core: warehouse selection and stock reservation
@@ -209,7 +303,7 @@ script is there to prove. A real client sharing one gateway across
 orders (P4's `POST /orders`, or the walkthrough below) does **not** get
 this isolation, which is the point of the next section.
 
-### The breaker across repeated failures — `docker stop payments-mock`
+### The breaker across repeated failures — `docker compose stop payments-mock`
 
 `HttpPaymentGateway.charge()` and `getStatus()` share one
 `CircuitBreaker`, counting each failed **attempt**, not each call. With
@@ -228,7 +322,7 @@ To see the mock itself go down and come back:
 docker compose up -d
 curl http://localhost:4000/health          # {"status":"ok"}
 
-docker stop payments-mock
+docker compose stop payments-mock
 curl http://localhost:4000/charge -X POST \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: demo-2' \
   -d '{"cardNumber":"4242424242424242","amountCents":9900,"currency":"USD","description":"Demo"}'
@@ -236,7 +330,7 @@ curl http://localhost:4000/charge -X POST \
 # Through HttpPaymentGateway this is CONNECTION_REFUSED, retried, and
 # (per the ordering above) can open the breaker for every card for 30 s.
 
-docker start payments-mock
+docker compose start payments-mock
 # ~5s for the healthcheck; a probe after the breaker's 30 s window
 # succeeds and closes it again, no api/worker restart needed.
 ```
@@ -303,10 +397,10 @@ specs/04-queue-worker-observability.md. A real `pg-boss` adapter behind
 the frozen `EventPublisher` port: `order.confirmed` fans out to three
 queues in one transaction, a standalone worker consumes them (the api
 never does), and every request and job is a trace in Grafana sharing one
-`correlationId`. `POST /internal/events/order-confirmed` was a
-development-only stand-in for P4's `POST /orders`, used to trigger this
-flow before the saga existed; P4 deleted it — `POST /orders` (below)
-publishes `order.confirmed` for real now.
+`correlationId`. During P3's own development, a now-removed
+`POST /internal/events/order-confirmed` endpoint stood in for P4's
+`POST /orders` to trigger this flow before the saga existed; P4 deleted
+it, so every walkthrough below goes through the real endpoint instead.
 
 ### Queue topology
 
@@ -357,10 +451,19 @@ design, so nothing is silently retried forever or silently dropped.
 
 ```bash
 docker compose up -d
-curl -X POST localhost:3000/internal/events/order-confirmed \
+curl -i -X POST http://localhost:3000/orders \
   -H 'Content-Type: application/json' \
-  -d '{"orderId":"<an existing order id with a warehouse_id set>"}'
-# 202, and an X-Correlation-Id response header
+  -H 'Idempotency-Key: '"$(uuidgen)" \
+  -d '{
+    "customerId": "c0000000-0000-0000-0000-000000000001",
+    "shippingAddress": {
+      "recipient": "Ada Lovelace", "line1": "1 Canal St",
+      "city": "Newark", "state": "NJ", "country": "US"
+    },
+    "items": [{ "productId": "b0000000-0000-0000-0000-000000000001", "quantity": 1 }],
+    "payment": { "cardNumber": "4242424242424242" }
+  }'
+# 201, and an X-Correlation-Id response header
 ```
 
 Open **http://localhost:3001** (Grafana, no login needed —
@@ -368,7 +471,7 @@ Open **http://localhost:3001** (Grafana, no login needed —
 tab → `Service Name` = `canals-api`, `Span Name` = `POST` finds the
 request trace. Do the same with `Service Name` = `canals-worker` to find
 the three `job shipment.create` / `job customer.notify` / `job
-analytics.record` traces the same request produced.
+analytics.record` traces that same request produced.
 
 Each job trace is its **own** trace, not a child span of the request —
 `JobRunner` opens it with `root: true` (job-runner.ts) because pg-boss's
@@ -391,10 +494,19 @@ outside any job trace.
 ### The `X-Correlation-Id` walkthrough
 
 ```bash
-curl -i -X POST localhost:3000/internal/events/order-confirmed \
+curl -i -X POST http://localhost:3000/orders \
   -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: '"$(uuidgen)" \
   -H 'X-Correlation-Id: demo-correlation-1' \
-  -d '{"orderId":"<order id>"}'
+  -d '{
+    "customerId": "c0000000-0000-0000-0000-000000000001",
+    "shippingAddress": {
+      "recipient": "Ada Lovelace", "line1": "1 Canal St",
+      "city": "Newark", "state": "NJ", "country": "US"
+    },
+    "items": [{ "productId": "b0000000-0000-0000-0000-000000000001", "quantity": 1 }],
+    "payment": { "cardNumber": "4242424242424242" }
+  }'
 # X-Correlation-Id: demo-correlation-1  — echoed back unchanged
 ```
 
@@ -457,42 +569,215 @@ worker picks the new job up within one polling interval. `pg-boss`'s own
 `--input-type=module` is required because `pg-boss@12` ships ESM-only; a
 plain `require('pg-boss')` throws `ERR_REQUIRE_ESM`.
 
-## Deployment
+## P6 — Hardening and demo: every failure path
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+specs/07-hardening-demo.md. `npm run demo` walks all ten scenarios below
+against a live stack and exits `0` when every one of them produced its
+documented output — including the final log grep proving no card number
+or secret ever reached a log line. Each scenario is independently
+try/caught, so one failure doesn't stop the rest from running. What
+follows is the same walkthrough, one `curl` at a time, against the same
+seed data as *Your first order* above.
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+| # | Scenario | Expected |
+|---|---|---|
+| 1 | Happy path | `201`, `CONFIRMED`, `warehouse.name`/`distanceMeters` present |
+| 2 | Declined card (`…0002`) | `402`, stock released back |
+| 3 | Provider timeout (`…0004`) | `502` with `orderId`, order `PENDING_PAYMENT`, reservation held |
+| 4 | Reaper resolves (3) | order (3) reaches `CONFIRMED` within ~75s of its reservation expiring |
+| 5 | Provider down | `502` on two orders, breaker opens (second one fails faster) |
+| 6 | Mock restarted, (5)'s orders expire | both reach `CANCELLED`, stock back to pre-(5) balance |
+| 7 | Unsatisfiable order | `422` |
+| 8 | Duplicate `Idempotency-Key` | identical `201` body, exactly one `payments` row |
+| 9 | `concurrency-e2e` | exactly N `201 CONFIRMED`, 20 `422`/`409`, ledger reconciles |
+| 10 | Log grep | no test card number, no `GEOAPIFY_API_KEY` value, anywhere in `docker compose logs` |
+
+**1 — happy path.** *Your first order*, above, already is this scenario.
+
+**2 — declined card.**
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+curl -i -X POST http://localhost:3000/orders \
+  -H 'Content-Type: application/json' -H 'Idempotency-Key: '"$(uuidgen)" \
+  -d '{"customerId":"c0000000-0000-0000-0000-000000000001","shippingAddress":{"recipient":"Ada Lovelace","line1":"1 Canal St","city":"Newark","state":"NJ","country":"US"},"items":[{"productId":"b0000000-0000-0000-0000-000000000001","quantity":1}],"payment":{"cardNumber":"4000000000000002"}}'
+# 402 payment-declined; GET the inventory back and it's unchanged.
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+**3 — provider timeout, `502` with `orderId`.**
 
-## Resources
+```bash
+RESPONSE=$(curl -s -X POST http://localhost:3000/orders \
+  -H 'Content-Type: application/json' -H 'Idempotency-Key: '"$(uuidgen)" \
+  -d '{"customerId":"c0000000-0000-0000-0000-000000000001","shippingAddress":{"recipient":"Ada Lovelace","line1":"1 Canal St","city":"Newark","state":"NJ","country":"US"},"items":[{"productId":"b0000000-0000-0000-0000-000000000001","quantity":1}],"payment":{"cardNumber":"4000000000080004"}}')
+echo "$RESPONSE"
+ORDER_ID=$(echo "$RESPONSE" | node -e "process.stdin.on('data',d=>console.log(JSON.parse(d).orderId))")
 
-Check out a few resources that may come in handy when working with NestJS:
+curl http://localhost:3000/orders/$ORDER_ID
+# status: "PENDING_PAYMENT" — the reservation is still held, do not
+# retry with a new Idempotency-Key (the body says so).
+```
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+**4 — the reaper resolves it.** The real TTL is 15 minutes
+(`RESERVATION_TTL_MINUTES`); the demo shortens it by moving
+`reservation_expires_at` into the past, documented as exactly that — a
+shortcut, not a different constant:
 
-## Support
+```bash
+docker compose exec postgres psql -U canals -d canals -c \
+  "UPDATE orders SET reservation_expires_at = now() - interval '1 minute' WHERE id = '$ORDER_ID'"
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+# wait up to ~75s for the reaper's next cron tick, then:
+curl http://localhost:3000/orders/$ORDER_ID
+# status: "CONFIRMED" — payments-mock did record the charge; getStatus()
+# told the reaper so.
+```
 
-## Stay in touch
+**5 — provider down, breaker opens.**
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+```bash
+docker compose stop payments-mock
 
-## License
+curl -s -o /dev/null -w '%{http_code} in %{time_total}s\n' -X POST http://localhost:3000/orders \
+  -H 'Content-Type: application/json' -H 'Idempotency-Key: '"$(uuidgen)" \
+  -d '{"customerId":"c0000000-0000-0000-0000-000000000001","shippingAddress":{"recipient":"Ada Lovelace","line1":"1 Canal St","city":"Newark","state":"NJ","country":"US"},"items":[{"productId":"b0000000-0000-0000-0000-000000000001","quantity":1}],"payment":{"cardNumber":"4242424242424242"}}'
+# 502, ~7s (3 retried attempts)
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+curl -s -o /dev/null -w '%{http_code} in %{time_total}s\n' -X POST http://localhost:3000/orders \
+  -H 'Content-Type: application/json' -H 'Idempotency-Key: '"$(uuidgen)" \
+  -d '{"customerId":"c0000000-0000-0000-0000-000000000001","shippingAddress":{"recipient":"Ada Lovelace","line1":"1 Canal St","city":"Newark","state":"NJ","country":"US"},"items":[{"productId":"b0000000-0000-0000-0000-000000000001","quantity":1}],"payment":{"cardNumber":"4242424242424242"}}'
+# 502, near-instant — the breaker is already open (see P2's
+# "breaker across repeated failures" above), record both orderIds.
+```
+
+**6 — restart, both orders expire, reaper cancels.**
+
+```bash
+docker compose start payments-mock
+# ~5s healthcheck + the breaker's own 30s cooldown before getStatus()
+# sees the real 404 instead of CIRCUIT_OPEN.
+
+docker compose exec postgres psql -U canals -d canals -c \
+  "UPDATE orders SET reservation_expires_at = now() - interval '1 minute' WHERE id IN ('<order A>', '<order B>')"
+
+# wait for the reaper's next tick(s), then:
+curl http://localhost:3000/orders/<order A>
+curl http://localhost:3000/orders/<order B>
+# status: "CANCELLED" on both — payments-mock never recorded either
+# charge (it was down), and stock is back to its pre-scenario-5 balance.
+```
+
+**7 — unsatisfiable order.**
+
+```bash
+curl -i -X POST http://localhost:3000/orders \
+  -H 'Content-Type: application/json' -H 'Idempotency-Key: '"$(uuidgen)" \
+  -d '{"customerId":"c0000000-0000-0000-0000-000000000001","shippingAddress":{"recipient":"Ada Lovelace","line1":"1 Canal St","city":"Newark","state":"NJ","country":"US"},"items":[{"productId":"b0000000-0000-0000-0000-000000000001","quantity":999999}],"payment":{"cardNumber":"4242424242424242"}}'
+# 422 no-fulfilment-possible — no warehouse anywhere has that much stock.
+```
+
+**8 — duplicate `Idempotency-Key`.**
+
+```bash
+KEY=$(uuidgen)
+BODY='{"customerId":"c0000000-0000-0000-0000-000000000001","shippingAddress":{"recipient":"Ada Lovelace","line1":"1 Canal St","city":"Newark","state":"NJ","country":"US"},"items":[{"productId":"b0000000-0000-0000-0000-000000000001","quantity":1}],"payment":{"cardNumber":"4242424242424242"}}'
+
+curl -s -X POST http://localhost:3000/orders -H 'Content-Type: application/json' -H "Idempotency-Key: $KEY" -d "$BODY" > first.json
+curl -s -X POST http://localhost:3000/orders -H 'Content-Type: application/json' -H "Idempotency-Key: $KEY" -d "$BODY" > replay.json
+diff <(jq -S . first.json) <(jq -S . replay.json)
+# no output — field-for-field identical, and exactly one payments row
+# exists for that order (the second POST never re-charged the card).
+```
+
+**9 — the concurrency proof, through HTTP.**
+
+```bash
+npm run concurrency-e2e
+```
+
+Same shape as P1's `concurrency-check`, but fired at `POST /orders` over
+real HTTP against its own dedicated fixture (one product, exactly `N`
+units, nowhere else) instead of calling the reservation code directly —
+this is the proof that the guarantee survives the full stack: routing,
+validation, the saga, the idempotency layer, all of it. Exactly `N`
+orders reach `201 CONFIRMED`, the rest `422`/`409`, never `N + 1`.
+
+**10 — the log grep.**
+
+```bash
+docker compose logs | grep -E '4242424242424242|4000000000000002|4000000000090003|4000000000080004'
+docker compose logs | grep "$GEOAPIFY_API_KEY"   # only meaningful if GEOAPIFY_API_KEY is set
+# both empty — Fix A's redaction (pino message hook + RedactingSpanExporter)
+# is what this proves: every log line and every exported span attribute,
+# including ones built from a raw string or a thrown Error, is masked.
+```
+
+All ten, automated, exiting `0` twice in a row on a fresh
+`docker compose up`:
+
+```bash
+npm run demo
+```
+
+## Known limitations
+
+Findings from the post-P5 audit that this phase deliberately did not
+fix, and scope this phase deliberately left out — not silently dropped,
+each has a reason:
+
+- **A generic `500` is stored as `COMPLETED` in `idempotency_keys`,
+  replayed forever.** Only `402`/`502` get the "pending confirmation"
+  treatment (Fix C); any other failure mode is recorded and replayed
+  as-is. Left to a future spec to decide what a non-terminal failure
+  should mean for a replay.
+- **Re-posting an expired `Idempotency-Key` returns `500`**, and a row
+  left `IN_PROGRESS` by a crash blocks its key until it expires (24h).
+  SPEC 05 handed the post-expiry semantics to this phase; this phase
+  defers the decision again, explicitly, rather than inheriting it by
+  accident — the reaper this phase adds only resolves *orders*, it does
+  not purge expired `idempotency_keys` rows.
+- **`GET /orders`'s cursor `500`s on a non-UUID id**, and its millisecond
+  precision doesn't quite match `created_at`'s microsecond precision —
+  a page boundary that lands exactly on a repeated timestamp can, in
+  principle, skip or repeat a row.
+- **`RESERVATION_TTL_MINUTES` is validated but nothing reads it** — the
+  reaper's actual window is `reservation_expires_at`, set by the saga at
+  order-creation time; the env var and the column are not wired together
+  today.
+- **`verify-ledger.sql` compares snapshots, not a full replay** of
+  `inventory_movements` from an empty state — it catches divergence, not
+  every way the ledger could have arrived somewhere wrong.
+- **Application → infrastructure imports aren't lint-enforced**, and the
+  HTTP-client lint barrier (`references/layering.md`) doesn't catch a
+  bare global `fetch` or `node:http` call from the wrong layer.
+- **No `healthcheck` on the `api` compose service** — `depends_on` gates
+  on `seed`/`payments-mock`, not on the api's own readiness.
+- **Expired `idempotency_keys` rows are never physically purged.**
+- **No nginx / multi-instance run of the concurrency proof** — there is
+  no nginx profile in `docker-compose.yml`; `concurrency-e2e` runs
+  against a single api instance. Adding a second instance behind a
+  reverse proxy is its own change.
+- **Deployment is out of scope** (phases/06, explicitly dropped).
+- **`POST /orders/bulk` (FR-10) is not built.** It's gated on FR-1
+  through FR-9 being complete and hardened, and it's a materially bigger
+  feature than it looks: every order in a batch does its own geocoding,
+  warehouse selection, inventory locking and payment call, so even a
+  capped batch of 25 can hold locks and burn provider quota for a real
+  stretch.
+- **`PATCH /orders/:id` (FR-11) is not built.** Same gate as FR-10. The
+  fields it *could* safely edit (recipient name, address line 2,
+  delivery notes) don't touch stock or money; anything that does
+  (`items`, the shipping city) would mean re-running warehouse selection
+  and re-reserving stock — a materially larger feature, deferred rather
+  than half-built.
+
+## `payments-mock` keeping charges only in memory
+
+One demo-specific risk worth calling out on its own: `payments-mock`
+keeps every charge in memory, so after a restart `getStatus()` answers
+`404` for a charge it actually did make — the reaper would then release
+stock for an order that *was* paid for. This is a mock-only problem (a
+real provider persists charges); the demo above resolves scenario 3's
+order (which really was charged, via `getStatus()`) *before* it ever
+stops `payments-mock` in scenario 5. Run steps 5/6 before step 3/4 and
+you will reproduce this exact false release — that's the mock's
+limitation showing, not a bug in the reaper.
