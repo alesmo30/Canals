@@ -1,6 +1,6 @@
 # SPEC 06 — P5 Read Side: `GET /orders` y `GET /orders/:id`
 
-> **Status:** Approved
+> **Status:** Implemented
 > **Depends on:** SPEC 01 (dominio, esquema, `idx_orders_keyset` — P0)
 > **Date:** 2026-09-21
 > **Objective:** Dar al reviewer un camino de lectura para verificar el camino
@@ -297,14 +297,14 @@ paso 1, también `npm run test:unit`.
 
 ## Acceptance criteria
 
-- [ ] Paginar las 50 órdenes sembradas llega a cada una exactamente una vez, sin duplicados ni huecos.
-- [ ] Insertar una orden nueva **a mitad de paginación** no desplaza ni duplica resultados en páginas siguientes.
-- [ ] Ningún `OFFSET` aparece en ninguna query.
-- [ ] `EXPLAIN` sobre la query de listado (caso base, sin filtros) muestra `idx_orders_keyset` en uso.
-- [ ] Cada filtro funciona solo y en combinación con los demás.
-- [ ] Una página de 20 órdenes con sus items emite un número acotado de queries, no 21.
-- [ ] Ningún dato de tarjeta ni el payload crudo del gateway es alcanzable desde ninguna respuesta.
-- [ ] Un query param desconocido devuelve `400`.
+- [x] Paginar las 50 órdenes sembradas llega a cada una exactamente una vez, sin duplicados ni huecos.
+- [x] Insertar una orden nueva **a mitad de paginación** no desplaza ni duplica resultados en páginas siguientes.
+- [x] Ningún `OFFSET` aparece en ninguna query.
+- [x] `EXPLAIN` sobre la query de listado (caso base, sin filtros) muestra `idx_orders_keyset` en uso.
+- [x] Cada filtro funciona solo y en combinación con los demás.
+- [x] Una página de 20 órdenes con sus items emite un número acotado de queries, no 21.
+- [x] Ningún dato de tarjeta ni el payload crudo del gateway es alcanzable desde ninguna respuesta.
+- [x] Un query param desconocido devuelve `400`.
 
 ## Decisions
 
