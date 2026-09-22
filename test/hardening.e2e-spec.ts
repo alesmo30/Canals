@@ -101,17 +101,21 @@ describe('HTTP hardening (e2e)', () => {
   // keep-alive agent, most likely).
   const itLocalOnly = process.env.CI ? it.skip : it;
 
-  itLocalOnly('the 601st request within a minute gets 429, while /health is never throttled', async () => {
-    const responses = await Promise.all(
-      Array.from({ length: REQUESTS_TO_TRIP_THE_LIMIT }, () =>
-        request(app.getHttpServer()).get('/orders'),
-      ),
-    );
+  itLocalOnly(
+    'the 601st request within a minute gets 429, while /health is never throttled',
+    async () => {
+      const responses = await Promise.all(
+        Array.from({ length: REQUESTS_TO_TRIP_THE_LIMIT }, () =>
+          request(app.getHttpServer()).get('/orders'),
+        ),
+      );
 
-    expect(responses.some((res) => res.status === 429)).toBe(true);
+      expect(responses.some((res) => res.status === 429)).toBe(true);
 
-    await request(app.getHttpServer()).get('/health').expect(200);
-  }, 30_000);
+      await request(app.getHttpServer()).get('/health').expect(200);
+    },
+    30_000,
+  );
 
   it('GET /docs-json lists POST /orders, GET /orders and GET /orders/{id}, with the Idempotency-Key header documented', async () => {
     const res = await request(app.getHttpServer())
