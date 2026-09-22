@@ -7,18 +7,22 @@ import { AllocateInventoryUseCase } from '../application/allocation/allocate-inv
 import { InventoryService } from '../application/allocation/inventory.service';
 import { CreateOrderIdempotentService } from '../application/orders/create-order-idempotent.service';
 import { CreateOrderUseCase } from '../application/orders/create-order.use-case';
+import { GetOrderService } from '../application/orders/get-order.service';
+import { ListOrdersService } from '../application/orders/list-orders.service';
 import { HealthController } from '../infrastructure/health/health.controller';
 import { PgBossHealthIndicator } from '../infrastructure/health/pg-boss.health-indicator';
+import { OrdersReadController } from '../infrastructure/http/controllers/orders-read.controller';
 import { OrdersController } from '../infrastructure/http/controllers/orders.controller';
 import { ProblemDetailsFilter } from '../infrastructure/http/filters/problem-details.filter';
 import { PgBossShutdownHook } from '../infrastructure/messaging/pg-boss-shutdown.hook';
 import { CorrelationMiddleware } from '../infrastructure/observability/correlation.middleware';
+import { OrdersReadRepository } from '../infrastructure/database/repositories/orders-read.repository';
 import { WarehouseSelectionRepository } from '../infrastructure/database/repositories/warehouse-selection.repository';
 
 /** SharedModule + HTTP controllers (infrastructure.md §3). main.ts's entrypoint. */
 @Module({
   imports: [SharedModule.register('api'), TerminusModule],
-  controllers: [HealthController, OrdersController],
+  controllers: [HealthController, OrdersController, OrdersReadController],
   providers: [
     PgBossHealthIndicator,
     PgBossShutdownHook,
@@ -27,6 +31,9 @@ import { WarehouseSelectionRepository } from '../infrastructure/database/reposit
     AllocateInventoryUseCase,
     CreateOrderUseCase,
     CreateOrderIdempotentService,
+    OrdersReadRepository,
+    ListOrdersService,
+    GetOrderService,
     { provide: APP_FILTER, useClass: ProblemDetailsFilter },
   ],
 })

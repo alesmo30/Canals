@@ -17,6 +17,7 @@ import {
   ProductNotFoundError,
 } from '../../../application/orders/create-order.errors';
 import { GeocodingFailedError } from '../../../domain/ports/geocoding-errors';
+import { OrderNotFoundError } from '../../../application/orders/order-read.errors';
 import { getCorrelationId } from '../../observability/correlation';
 
 export interface ProblemDetailsErrorItem {
@@ -103,7 +104,8 @@ export function buildProblem(exception: unknown): ProblemShape {
 
   if (
     exception instanceof CustomerNotFoundError ||
-    exception instanceof ProductNotFoundError
+    exception instanceof ProductNotFoundError ||
+    exception instanceof OrderNotFoundError
   ) {
     return {
       status: HttpStatus.NOT_FOUND,

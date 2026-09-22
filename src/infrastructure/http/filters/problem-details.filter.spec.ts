@@ -14,6 +14,7 @@ import {
   ProductNotFoundError,
 } from '../../../application/orders/create-order.errors';
 import { GeocodingFailedError } from '../../../domain/ports/geocoding-errors';
+import { OrderNotFoundError } from '../../../application/orders/order-read.errors';
 import { correlationStorage } from '../../observability/correlation';
 
 /**
@@ -118,6 +119,15 @@ describe('ProblemDetailsFilter', () => {
 
     expect(body.status).toBe(HttpStatus.NOT_FOUND);
     expect(body.detail).toContain('prod-1');
+  });
+
+  it('maps OrderNotFoundError to 404, same shape as CustomerNotFoundError', () => {
+    const body = runCatch(new OrderNotFoundError('order-1'));
+
+    expect(body.status).toBe(HttpStatus.NOT_FOUND);
+    expect(body.type).toBe('urn:problem-type:not-found');
+    expect(body.title).toBe('Resource not found');
+    expect(body.detail).toContain('order-1');
   });
 
   it('maps NoFulfilmentPossibleError(NO_CANDIDATES) to 422', () => {
