@@ -152,8 +152,13 @@ describe('CreateOrderUseCase (integration) — full saga', () => {
     expect(inventory.quantityAvailable).toBe(3);
     expect(inventory.quantityReserved).toBe(0);
 
+    // PgBossEventPublisher fans `order.confirmed` out into its three
+    // routed queues (event-routing.ts) — there is no job literally named
+    // `order.confirmed`.
     const jobs = await jobsForOrder(result.order.getId());
-    expect(jobs).toContain('order.confirmed');
+    expect(jobs.sort()).toEqual(
+      ['analytics.record', 'customer.notify', 'shipment.create'].sort(),
+    );
   });
 
   it('DECLINED: releases stock back to quantity_available, marks PAYMENT_FAILED, and throws PaymentDeclinedError', async () => {

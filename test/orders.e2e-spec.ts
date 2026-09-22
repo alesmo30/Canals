@@ -257,8 +257,8 @@ describe('POST /orders (e2e)', () => {
     expect(asProblem(res.body).type).toBe('urn:problem-type:geocoding-failed');
   });
 
-  it('409: two concurrent orders racing for the last unit — the loser gets a conflict, not a 422', async () => {
-    const { productId } = await makeFixture(1); // exactly one unit available
+  it('409/422: two concurrent orders racing for the last unit — exactly one succeeds, no double-booking', async () => {
+    const { productId, warehouseId } = await makeFixture(1); // exactly one unit available
 
     const [first, second] = await Promise.all([
       request(app.getHttpServer())
@@ -271,13 +271,32 @@ describe('POST /orders (e2e)', () => {
         .send(validBody(productId)),
     ]);
 
-    const statuses = [first.status, second.status].sort();
-    expect(statuses).toEqual([201, 409]);
+    const statuses = [first.status, second.status];
+    expect(statuses.filter((status) => status === 201)).toHaveLength(1);
 
-    const loser = first.status === 409 ? first : second;
-    expect(asProblem(loser.body).type).toBe(
-      'urn:problem-type:inventory-reservation-conflict',
-    );
+    // Which status the loser gets depends on exactly how the two
+    // in-process requests interleave: if the winner's whole Phase 1 (incl.
+    // its commit) finishes before the loser's own selection query runs,
+    // the loser sees zero candidates (422, NO_CANDIDATES); if both select
+    // the same candidate first and only one wins the row lock, the loser
+    // exhausts its failover loop instead (409, RESERVATION_RACE_LOST).
+    // `Promise.all()` over two in-process HTTP calls cannot force either
+    // interleaving deterministically — same lesson as
+    // specs/02-fulfilment-core.md's Risks table draws for
+    // concurrency-check.ts ("the harness reports N successes while
+    // actually running sequentially, proving nothing"). The deterministic,
+    // timing-independent proof that RESERVATION_RACE_LOST maps to 409
+    // lives in allocate-inventory.use-case.integration.spec.ts, which
+    // forces the exact interleaving via a test seam. This test only
+    // proves the HTTP-level invariant that actually matters here: no
+    // double-booking.
+    const loserStatus = statuses.find((status) => status !== 201);
+    expect([409, 422]).toContain(loserStatus);
+
+    const orders = await AppDataSource.getRepository(OrderOrmEntity).find({
+      where: { warehouseId },
+    });
+    expect(orders).toHaveLength(1);
   });
 
   it('402: card ...0002 is declined — order becomes PAYMENT_FAILED, stock is released', async () => {

@@ -89,6 +89,23 @@ describe('ProblemDetailsFilter', () => {
     ]);
   });
 
+  it('extracts the field name from a whitelist-violation message (a real ValidationPipe shape, "property X should not exist")', () => {
+    const exception = new BadRequestException({
+      message: ['property extraField should not exist'],
+      error: 'Bad Request',
+      statusCode: 400,
+    });
+
+    const body = runCatch(exception);
+
+    expect(body.errors).toEqual([
+      {
+        field: 'extraField',
+        message: 'property extraField should not exist',
+      },
+    ]);
+  });
+
   it('maps CustomerNotFoundError to 404', () => {
     const body = runCatch(new CustomerNotFoundError('cust-1'));
 

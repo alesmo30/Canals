@@ -45,12 +45,20 @@ export interface ProblemShape {
 }
 
 /**
- * Nest's `ValidationPipe` (main.ts) always formats each message as
+ * `class-validator`'s own whitelist check (`ValidationExecutor.whitelist`)
+ * formats a rejected-property message as the fixed sentence
+ * `property ${property} should not exist` — the field name sits in the
+ * *second* position, unlike every other constraint message.
+ */
+const WHITELIST_VIOLATION_PATTERN = /^property (.+) should not exist$/;
+
+/**
+ * Nest's `ValidationPipe` (main.ts) formats every other message as
  * `<dot.path> <constraint text>` — even for a nested property, since it
  * prepends the parent path to the message string itself, not to a
  * separate field (`@nestjs/common/pipes/validation.pipe.js`,
  * `prependConstraintsWithParentProp`). Splitting on the first space
- * reliably recovers the path without needing a custom
+ * reliably recovers the path for those, without needing a custom
  * `exceptionFactory` in the already-frozen main.ts.
  */
 function extractValidationErrors(
@@ -65,6 +73,10 @@ function extractValidationErrors(
   }
   return message.map((entry) => {
     const text = String(entry);
+    const whitelistMatch = WHITELIST_VIOLATION_PATTERN.exec(text);
+    if (whitelistMatch) {
+      return { field: whitelistMatch[1], message: text };
+    }
     const separatorIndex = text.indexOf(' ');
     const field = separatorIndex === -1 ? text : text.slice(0, separatorIndex);
     return { field, message: text };

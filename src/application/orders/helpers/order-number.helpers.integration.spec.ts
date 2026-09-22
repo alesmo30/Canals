@@ -4,9 +4,11 @@ import { AppDataSource } from '../../../infrastructure/database/data-source';
 /**
  * Integration test — DATABASE_URL (+ PAYMENTS_URL,
  * OTEL_EXPORTER_OTLP_ENDPOINT) exported, a migrated Postgres reachable.
- * `order_number_seq` (SPEC 05 step 1) is a fresh global sequence with no
- * other consumer in this test suite, so the first two calls are
- * deterministically 000001 then 000002.
+ * `order_number_seq` (SPEC 05 step 1) is a real Postgres sequence, shared
+ * and never reset across the whole test run (and across prior runs) —
+ * other integration tests/e2e specs call `generateOrderNumber` too, so
+ * this asserts the format and the "next call increments by exactly one"
+ * behaviour, never an absolute starting value.
  */
 describe('generateOrderNumber (integration)', () => {
   beforeAll(async () => {
@@ -17,13 +19,20 @@ describe('generateOrderNumber (integration)', () => {
     await AppDataSource.destroy();
   });
 
-  it('produces CNL-<current year>-000001, then ...-000002 on the next call', async () => {
+  it('produces CNL-<current year>-<6 digits>, incrementing by one on the next call', async () => {
     const currentYear = new Date().getFullYear();
+    const pattern = new RegExp(`^CNL-${currentYear}-(\\d{6})$`);
 
     const first = await generateOrderNumber(AppDataSource);
     const second = await generateOrderNumber(AppDataSource);
 
-    expect(first).toBe(`CNL-${currentYear}-000001`);
-    expect(second).toBe(`CNL-${currentYear}-000002`);
+    const firstMatch = first.match(pattern);
+    const secondMatch = second.match(pattern);
+    expect(firstMatch).not.toBeNull();
+    expect(secondMatch).not.toBeNull();
+
+    const firstSequence = Number(firstMatch![1]);
+    const secondSequence = Number(secondMatch![1]);
+    expect(secondSequence).toBe(firstSequence + 1);
   });
 });
