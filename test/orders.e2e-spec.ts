@@ -324,25 +324,52 @@ describe('POST /orders (e2e)', () => {
 
   it('502: card ...0004 times out at the provider — order stays PENDING_PAYMENT, reservation intact', async () => {
     const { productId, warehouseId } = await makeFixture();
+    const idempotencyKey = randomUUID();
 
     const res = await request(app.getHttpServer())
       .post('/orders')
-      .set('Idempotency-Key', randomUUID())
+      .set('Idempotency-Key', idempotencyKey)
       .send(validBody(productId, { payment: { cardNumber: TIMEOUT_CARD } }))
       .expect(502);
 
-    expect(asProblem(res.body).status).toBe(502);
+    const problem = asProblem(res.body);
+    expect(problem.status).toBe(502);
+
+    // SPEC 07 Fix C: the 502 body carries orderId, pointing the client at
+    // GET /orders/:id instead of a retry with a new Idempotency-Key.
+    expect(problem.orderId).toBeDefined();
+    expect(problem.detail).toContain(`poll GET /orders/${problem.orderId}`);
 
     const orders = await AppDataSource.getRepository(OrderOrmEntity).find({
       where: { warehouseId },
     });
     expect(orders).toHaveLength(1);
     expect(orders[0].status).toBe('PENDING_PAYMENT');
+    expect(orders[0].id).toBe(problem.orderId);
 
     const persistedPayment = await AppDataSource.getRepository(
       PaymentOrmEntity,
     ).findOneByOrFail({ orderId: orders[0].id });
     expect(persistedPayment.status).toBe('UNKNOWN');
+
+    const getRes = await request(app.getHttpServer())
+      .get(`/orders/${problem.orderId}`)
+      .expect(200);
+    expect(asOrder(getRes.body).status).toBe('PENDING_PAYMENT');
+
+    // A replay with the same key returns the identical body — including
+    // the same orderId — never a second order or charge.
+    const replay = await request(app.getHttpServer())
+      .post('/orders')
+      .set('Idempotency-Key', idempotencyKey)
+      .send(validBody(productId, { payment: { cardNumber: TIMEOUT_CARD } }))
+      .expect(502);
+    expect(replay.body).toEqual(res.body);
+
+    const ordersAfterReplay = await AppDataSource.getRepository(
+      OrderOrmEntity,
+    ).find({ where: { warehouseId } });
+    expect(ordersAfterReplay).toHaveLength(1);
   }, 15_000);
 
   it('idempotency: replaying the same key with the same body returns the identical response, no second order', async () => {

@@ -25,7 +25,7 @@ export interface ProblemDetailsErrorItem {
   message: string;
 }
 
-/** specs/05-order-creation-saga.md, Data model. */
+/** specs/05-order-creation-saga.md, Data model. `orderId` is an RFC 9457 extension member, set only on the `502` (SPEC 07 Fix C, Decisions). */
 export interface ProblemDetails {
   type: string;
   title: string;
@@ -34,6 +34,7 @@ export interface ProblemDetails {
   instance: string;
   correlationId: string;
   errors?: ProblemDetailsErrorItem[];
+  orderId?: string;
 }
 
 /** Exported so the controller (step 12) can mark `idempotency_keys` COMPLETED with the exact status/body the client is about to receive, without duplicating this mapping. */
@@ -43,6 +44,7 @@ export interface ProblemShape {
   title: string;
   detail: string;
   errors?: ProblemDetailsErrorItem[];
+  orderId?: string;
 }
 
 /**
@@ -152,11 +154,18 @@ export function buildProblem(exception: unknown): ProblemShape {
   }
 
   if (exception instanceof PaymentProviderUnavailableError) {
+    const { orderId, failureCode } = exception;
     return {
       status: HttpStatus.BAD_GATEWAY,
       type: 'urn:problem-type:payment-provider-unavailable',
       title: 'Payment provider unavailable',
-      detail: exception.message,
+      // SPEC 07 Fix C: tells the client to poll the order instead of
+      // re-posting with a new Idempotency-Key, which could charge twice.
+      detail:
+        `Payment outcome unknown${failureCode ? ` (${failureCode})` : ''}. ` +
+        `Order ${orderId} is pending confirmation — poll GET /orders/${orderId}; ` +
+        `do not retry with a new Idempotency-Key.`,
+      orderId,
     };
   }
 
@@ -209,6 +218,7 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       instance: request.originalUrl,
       correlationId: getCorrelationId() ?? '',
       ...(problem.errors ? { errors: problem.errors } : {}),
+      ...(problem.orderId ? { orderId: problem.orderId } : {}),
     };
 
     response

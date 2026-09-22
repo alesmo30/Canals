@@ -8,6 +8,10 @@ import {
 import { isUUID } from 'class-validator';
 import { DataSource, QueryFailedError } from 'typeorm';
 
+import {
+  PaymentDeclinedError,
+  PaymentProviderUnavailableError,
+} from './create-order.errors';
 import { CreateOrderUseCase } from './create-order.use-case';
 import type { CreateOrderCommand } from './create-order.types';
 import {
@@ -212,11 +216,22 @@ export class CreateOrderIdempotentService {
         instance,
         correlationId: getCorrelationId() ?? '',
         ...(problem.errors ? { errors: problem.errors } : {}),
+        ...(problem.orderId ? { orderId: problem.orderId } : {}),
       };
+
+      // SPEC 07 Fix C: both a 402 and a 502 are only ever thrown after the
+      // order row exists, so idempotency_keys.order_id records it for
+      // both — a replay can then point the client at the order even
+      // though only the 502 body itself carries `orderId`.
+      const orderId =
+        error instanceof PaymentDeclinedError ||
+        error instanceof PaymentProviderUnavailableError
+          ? error.orderId
+          : null;
 
       await markCompleted(this.dataSource, {
         id: idempotencyKeyId,
-        orderId: null,
+        orderId,
         responseStatus: problem.status,
         responseBody: problemDetails,
       });

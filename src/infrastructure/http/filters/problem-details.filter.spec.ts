@@ -157,16 +157,31 @@ describe('ProblemDetailsFilter', () => {
     expect(body.type).toBe('urn:problem-type:inventory-reservation-conflict');
   });
 
-  it('maps PaymentDeclinedError to 402', () => {
-    const body = runCatch(new PaymentDeclinedError('CARD_DECLINED'));
+  it('maps PaymentDeclinedError to 402, without an orderId extension member', () => {
+    const body = runCatch(
+      new PaymentDeclinedError({
+        orderId: 'order-1',
+        failureCode: 'CARD_DECLINED',
+      }),
+    );
 
     expect(body.status).toBe(HttpStatus.PAYMENT_REQUIRED);
+    expect(body.orderId).toBeUndefined();
   });
 
-  it('maps PaymentProviderUnavailableError to 502', () => {
-    const body = runCatch(new PaymentProviderUnavailableError('TIMEOUT'));
+  it('maps PaymentProviderUnavailableError to 502, carrying orderId and a pending-confirmation detail', () => {
+    const body = runCatch(
+      new PaymentProviderUnavailableError({
+        orderId: 'order-2',
+        failureCode: 'TIMEOUT',
+      }),
+    );
 
     expect(body.status).toBe(HttpStatus.BAD_GATEWAY);
+    expect(body.orderId).toBe('order-2');
+    expect(body.detail).toContain('order-2');
+    expect(body.detail).toContain('poll GET /orders/order-2');
+    expect(body.detail).toContain('do not retry with a new Idempotency-Key');
   });
 
   it('maps an unrelated NestJS HttpException (e.g. an unmatched route) generically', () => {

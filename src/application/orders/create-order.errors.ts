@@ -22,16 +22,29 @@ export class ProductNotFoundError extends Error {
   }
 }
 
+/** specs/05-order-creation-saga.md, R4.5's Phase-3 errors — both are only ever raised after the order row exists (SPEC 07 Fix C), so both carry its id. */
+export interface PaymentOutcomeErrorParams {
+  orderId: string;
+  failureCode: string | null;
+}
+
 /**
  * specs/05-order-creation-saga.md, R4.5 — raised in Phase 3 (step 11) when
  * `ChargeResult.status === 'DECLINED'`. Terminal: the order becomes
  * `PAYMENT_FAILED` and stock is released before this is thrown. Maps to
- * `402`.
+ * `402`. `orderId` is not exposed on the `402` response body (Decisions —
+ * a `402` is terminal, the client re-posts a new order) but is still
+ * recorded in `idempotency_keys.order_id` (SPEC 07 Fix C).
  */
 export class PaymentDeclinedError extends Error {
-  constructor(public readonly failureCode: string | null) {
+  public readonly orderId: string;
+  public readonly failureCode: string | null;
+
+  constructor({ orderId, failureCode }: PaymentOutcomeErrorParams) {
     super(`Payment declined${failureCode ? ` (${failureCode})` : ''}`);
     this.name = 'PaymentDeclinedError';
+    this.orderId = orderId;
+    this.failureCode = failureCode;
   }
 }
 
@@ -43,10 +56,15 @@ export class PaymentDeclinedError extends Error {
  * decides its fate. Maps to `502`.
  */
 export class PaymentProviderUnavailableError extends Error {
-  constructor(public readonly failureCode: string | null) {
+  public readonly orderId: string;
+  public readonly failureCode: string | null;
+
+  constructor({ orderId, failureCode }: PaymentOutcomeErrorParams) {
     super(
       `Payment provider unavailable${failureCode ? ` (${failureCode})` : ''}`,
     );
     this.name = 'PaymentProviderUnavailableError';
+    this.orderId = orderId;
+    this.failureCode = failureCode;
   }
 }

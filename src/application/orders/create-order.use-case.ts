@@ -345,11 +345,17 @@ export class CreateOrderUseCase {
           .save(orderToPersistence(order));
       });
 
-      throw new PaymentDeclinedError(chargeResult.failureCode);
+      throw new PaymentDeclinedError({
+        orderId: order.getId(),
+        failureCode: chargeResult.failureCode,
+      });
     }
 
     // UNKNOWN: leave PENDING_PAYMENT, reservation intact — P6's
     // reconciliation decides its fate (specs/05, Handoff from SPEC 03).
-    throw new PaymentProviderUnavailableError(chargeResult.failureCode);
+    throw new PaymentProviderUnavailableError({
+      orderId: order.getId(),
+      failureCode: chargeResult.failureCode,
+    });
   }
 }
