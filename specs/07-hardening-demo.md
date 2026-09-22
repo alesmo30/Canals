@@ -461,18 +461,18 @@ green; one commit per step (CLAUDE.md, `/spec-impl` loop).
 
 ## Acceptance criteria
 
-- [ ] A log line built from a string containing a PAN, and an `Error` whose message contains one, both print it masked.
-- [ ] No exported span attribute or span event contains a PAN.
-- [ ] `getStatus()` returns `CAPTURED` only for a `200` with `status: 'approved'`; any unexpected answer is `UNKNOWN`.
-- [ ] A `502` from `POST /orders` carries `orderId`, says the payment is pending confirmation, and replays byte-identically.
-- [ ] An order left `PENDING_PAYMENT` past its TTL is resolved by the reaper — settled or released, never left hanging — unless the provider still answers `UNKNOWN`, in which case it is alerted on, not released.
-- [ ] Two settlers racing on the same order: exactly one transition, one set of inventory movements, at most one `order.confirmed`.
-- [ ] Killing `payments-mock` mid-flight and restarting it leads to a correct final state with no stock lost or leaked.
-- [ ] The concurrency proof passes repeatedly, never N + 1.
-- [ ] Every scenario in R6.4 produces its documented output.
-- [ ] A clean clone reaches a successful order in under five minutes following only the README.
-- [ ] `/docs` renders the OpenAPI spec.
-- [ ] A `grep` for card numbers and secrets across the logs of a full demo run returns nothing.
+- [x] A log line built from a string containing a PAN, and an `Error` whose message contains one, both print it masked.
+- [x] No exported span attribute or span event contains a PAN.
+- [x] `getStatus()` returns `CAPTURED` only for a `200` with `status: 'approved'`; any unexpected answer is `UNKNOWN`.
+- [x] A `502` from `POST /orders` carries `orderId`, says the payment is pending confirmation, and replays byte-identically.
+- [x] An order left `PENDING_PAYMENT` past its TTL is resolved by the reaper — settled or released, never left hanging — unless the provider still answers `UNKNOWN`, in which case it is alerted on, not released.
+- [x] Two settlers racing on the same order: exactly one transition, one set of inventory movements, at most one `order.confirmed`.
+- [x] Killing `payments-mock` mid-flight and restarting it leads to a correct final state with no stock lost or leaked.
+- [x] The concurrency proof passes repeatedly, never N + 1.
+- [x] Every scenario in R6.4 produces its documented output.
+- [x] A clean clone reaches a successful order in under five minutes following only the README.
+- [x] `/docs` renders the OpenAPI spec.
+- [x] A `grep` for card numbers and secrets across the logs of a full demo run returns nothing.
 
 ## Decisions
 
@@ -574,4 +574,85 @@ Each of these, if it lands, goes in its own spec.
 
 ## Rehearsal notes
 
-*(Filled in at step 15.)*
+**Shutdown check (R6.6).** `docker compose stop` was fired ~1.5s after
+launching `concurrency-e2e -- 50` (70 concurrent orders) — the HTTP burst
+itself finished before the stop even landed (sub-2s at that concurrency),
+so the real exercise was the worker draining its own job backlog through
+the stop signal. Full `docker compose stop` (all six services) completed
+in ~10.8s, well inside the worker's 30s `stop_grace_period`. `pgboss.job`
+had zero rows in `active` state afterward — nothing left mid-processing;
+only `created` (queued, correctly resumable on the next boot) rows
+remained.
+
+**Clean-clone rehearsal (R6.7).** The `spec-07-hardening-demo` branch
+isn't pushed to `origin` yet, so this was a local `git clone -b
+spec-07-hardening-demo` into a fresh directory rather than a GitHub one —
+same guarantee that matters here: only committed content, nothing from
+the working tree. `docker compose down -v` first, then followed only the
+README:
+
+- `docker compose up -d --build`
+- `curl http://localhost:3000/health` → `200`
+- the README's "Your first order" `curl` → `201`, `CONFIRMED`, `Newark
+  DC`, exactly as documented
+
+**Time-to-first-order: 81 seconds** (clone to first `201`), well under
+the five-minute AC.
+
+Every `curl` under *P6 — Hardening and demo* in the new README was then
+run against this same clone, in the documented order — all ten matched
+their documented output. `npm run demo` was run twice back to back: both
+`PASSED`.
+
+**What had to be worked around (none of it a SPEC 07 regression):**
+
+1. **`npm run verify` cannot be run blindly against a live `docker
+   compose up` stack.** `test:integration`/`test:e2e` spin their own
+   in-process Nest app and `JobRunner`, and expect to be the only
+   consumer of `shipment.create`/`customer.notify`/`analytics.record`
+   for the jobs they publish. With the `worker` container also polling
+   those same queues in the same database, it can steal a job the test
+   itself is waiting to observe — reproduced directly:
+   `correlation-and-tracing.integration.spec.ts` expected 3 observed
+   `correlationId`s and got 1, because the live worker consumed the
+   other two jobs first. CI's own `integration` job
+   (`.github/workflows/tests.yml`) already avoids this by starting only
+   `postgres` + `payments-mock`, never `worker`/`api` — the
+   README/CLAUDE.md commands table doesn't say so explicitly anywhere a
+   local run would see it. **Worked around for this rehearsal:**
+   `docker compose stop worker` before `test:integration`/`test:e2e`,
+   `docker compose start worker` again before `concurrency-e2e`/
+   `events-check` (which need it running). An operational step, not a
+   code change — worth documenting where `npm run verify`'s users will
+   actually see it; left for whichever spec next touches that command.
+2. **`job-runner.integration.spec.ts`'s "realistic: order.confirmed for
+   a non-existent orderId…" test** failed twice in a row inside the full
+   `test:integration` run, passed 5/5 in isolation — the same
+   pre-existing, unrelated flake already logged in this spec's own
+   progress notes (confirmed on baseline before SPEC 07 too). Not fixed
+   here; still not a SPEC 07 regression.
+3. **`events-check` timed out once** (its own 45s budget) immediately
+   after restarting `worker` from a stop. Not a backlog problem — the
+   queue was otherwise empty — and the worker's own log showed a first
+   *failed* attempt on that exact job before a successful retry ~60s
+   later (pg-boss's own exponential backoff, capped at 60s): plausibly
+   transient contention from the heavy concurrent load this rehearsal
+   put on one laptop-sized Postgres (repeated `demo`/`concurrency-e2e`
+   runs plus the full jest suites, back to back, in one sitting). A
+   clean re-run passed immediately and was not reproduced a second time.
+4. **`npm run lint` has one pre-existing failure, unrelated to SPEC 07:**
+   `payments-mock/src/charge.service.ts:103`, an unused `body`
+   destructured variable, present since SPEC 03 (`970f603`).
+   `payments-mock` is not in this spec's Decisions' list of files it
+   touches, so left as found rather than fixed here — flagged for
+   whoever next opens that file.
+5. **Docker on Apple Silicon** logs a `linux/amd64` vs
+   `linux/arm64/v8` platform-mismatch warning for the `postgres`/
+   `postgis` image on every `docker compose up` — harmless (Docker
+   Desktop emulates it), pre-existing, cosmetic only.
+
+With `worker` stopped/restarted at the right points and the platform
+note aside, every `npm run verify` component — `lint` (the one
+pre-existing, unrelated finding above aside), `build`, `test:unit`,
+`test:integration`, `test:e2e`, `verify:db`, `concurrency-check`,
+`concurrency-e2e`, `payments-check`, `events-check` — passed.
