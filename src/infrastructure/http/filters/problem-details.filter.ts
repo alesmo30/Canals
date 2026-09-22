@@ -87,6 +87,25 @@ function extractValidationErrors(
 }
 
 /**
+ * SPEC 07 R6.6: the shape `http-errors` (used by `body-parser`/`raw-body`,
+ * among others) gives an Express-middleware-thrown error — a `status`
+ * (the intended HTTP status) and `expose: true` (safe to show the client,
+ * as opposed to an internal 500 detail).
+ */
+interface ExposedHttpError extends Error {
+  status: number;
+  expose: true;
+}
+
+function isExposedHttpError(error: unknown): error is ExposedHttpError {
+  return (
+    error instanceof Error &&
+    typeof (error as { status?: unknown }).status === 'number' &&
+    (error as { expose?: unknown }).expose === true
+  );
+}
+
+/**
  * specs/05-order-creation-saga.md, R4.5 — every branch this saga can end
  * in, mapped to its status. `type` values are `urn:problem-type:*`
  * identifiers, not resolvable URLs — RFC 9457 only requires a URI
@@ -172,6 +191,19 @@ export function buildProblem(exception: unknown): ProblemShape {
   if (exception instanceof HttpException) {
     return {
       status: exception.getStatus(),
+      type: 'about:blank',
+      title: exception.name,
+      detail: exception.message,
+    };
+  }
+
+  // SPEC 07 R6.6: a body-parser/raw-body limit error (e.g. `413` from a
+  // body over BODY_LIMIT) is thrown by Express middleware, before Nest's
+  // request pipeline — it is shaped like the `http-errors` package's
+  // output (a `status` and `expose: true`), not an `HttpException`.
+  if (isExposedHttpError(exception)) {
+    return {
+      status: exception.status,
       type: 'about:blank',
       title: exception.name,
       detail: exception.message,

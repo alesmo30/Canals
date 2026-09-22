@@ -191,6 +191,20 @@ describe('ProblemDetailsFilter', () => {
     expect(body.type).toBe('about:blank');
   });
 
+  it("maps an http-errors-shaped exception (e.g. body-parser's 413) to its own status, not a generic 500", () => {
+    const error = Object.assign(new Error('request entity too large'), {
+      name: 'PayloadTooLargeError',
+      status: 413,
+      expose: true,
+    });
+
+    const body = runCatch(error);
+
+    expect(body.status).toBe(413);
+    expect(body.type).toBe('about:blank');
+    expect(body.detail).toBe('request entity too large');
+  });
+
   it('maps an unknown thrown value to a generic 500, without leaking its message', () => {
     const body = runCatch(new Error('boom, contains sensitive stack info'));
 

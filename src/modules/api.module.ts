@@ -1,6 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { APP_FILTER } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { TerminusModule } from '@nestjs/terminus';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { SharedModule } from './shared.module';
 import { AllocateInventoryUseCase } from '../application/allocation/allocate-inventory.use-case';
@@ -20,9 +21,21 @@ import { CorrelationMiddleware } from '../infrastructure/observability/correlati
 import { OrdersReadRepository } from '../infrastructure/database/repositories/orders-read.repository';
 import { WarehouseSelectionRepository } from '../infrastructure/database/repositories/warehouse-selection.repository';
 
+/** SPEC 07 R6.6 — 600/min/IP comfortably covers R6.3's burst (N + 20 = 70 by default); a named constant, not an env var (references/coding-conventions.md). */
+const RATE_LIMIT_PER_MINUTE = 600;
+
+/** ThrottlerModule's own window, in ms — one minute. */
+const RATE_LIMIT_WINDOW_MS = 60_000;
+
 /** SharedModule + HTTP controllers (infrastructure.md §3). main.ts's entrypoint. */
 @Module({
-  imports: [SharedModule.register('api'), TerminusModule],
+  imports: [
+    SharedModule.register('api'),
+    TerminusModule,
+    ThrottlerModule.forRoot([
+      { ttl: RATE_LIMIT_WINDOW_MS, limit: RATE_LIMIT_PER_MINUTE },
+    ]),
+  ],
   controllers: [HealthController, OrdersController, OrdersReadController],
   providers: [
     PgBossHealthIndicator,
@@ -37,6 +50,7 @@ import { WarehouseSelectionRepository } from '../infrastructure/database/reposit
     ListOrdersService,
     GetOrderService,
     { provide: APP_FILTER, useClass: ProblemDetailsFilter },
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
 export class ApiModule implements NestModule {

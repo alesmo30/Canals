@@ -4,6 +4,7 @@ import {
   HealthCheckService,
   TypeOrmHealthIndicator,
 } from '@nestjs/terminus';
+import { SkipThrottle } from '@nestjs/throttler';
 
 import { PgBossHealthIndicator } from './pg-boss.health-indicator';
 
@@ -21,6 +22,7 @@ import { PgBossHealthIndicator } from './pg-boss.health-indicator';
  * single endpoint used to run.
  */
 @Controller('health')
+@SkipThrottle()
 export class HealthController {
   constructor(
     private readonly health: HealthCheckService,

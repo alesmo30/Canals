@@ -38,6 +38,20 @@ export const envSchema = z
       .default(15),
 
     RESERVATION_TTL_MINUTES: z.coerce.number().int().positive().default(15),
+
+    // SPEC 07 R6.6: an allowed CORS origin is exactly the kind of value an
+    // operator changes per deployment, so it is an env var, not a
+    // constant (references/coding-conventions.md). Comma-separated;
+    // split/trimmed into the array main.ts's enableCors() needs.
+    CORS_ORIGINS: z
+      .string()
+      .default('http://localhost:3000')
+      .transform((value) =>
+        value
+          .split(',')
+          .map((origin) => origin.trim())
+          .filter((origin) => origin.length > 0),
+      ),
   })
   .refine(
     (config) =>
