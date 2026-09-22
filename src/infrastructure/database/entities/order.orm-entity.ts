@@ -4,8 +4,8 @@ import { bigintNumberTransformer } from '../transformers/bigint-number.transform
 import type { GeoPoint } from '../interfaces/geo-point';
 import type { OrderStatus } from '../../../domain/enum-types/order-status';
 
-/** Runtime mirror of the `order_status` enum (migration, step 7) — TypeORM's `enum` column option needs an actual array, not just a type. */
-const ORDER_STATUS_VALUES: readonly OrderStatus[] = [
+/** Runtime mirror of the `order_status` enum (migration, step 7) — TypeORM's `enum` column option needs an actual array, not just a type. Exported so `ListOrdersQueryDto` (specs/06-read-side.md) can validate `status` against it without duplicating the enum. */
+export const ORDER_STATUS_VALUES: readonly OrderStatus[] = [
   'PENDING_PAYMENT',
   'PAID',
   'CONFIRMED',
