@@ -89,6 +89,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # SPEC 05 (P4): create-order.use-case.integration.spec.ts and
+      # orders.e2e-spec.ts are the first integration/e2e specs to call a
+      # real PaymentGateway.charge() — every P1/P2 payment test before
+      # them was a unit test against a mocked fetch. Without a real
+      # payments-mock listening on PAYMENTS_URL, every charge() attempt
+      # here gets ECONNREFUSED, exhausts retries and can trip the
+      # in-process circuit breaker for the rest of the run.
+      - name: Start payments-mock
+        run: docker compose up -d --build --wait payments-mock
+
       - name: Run migrations
         run: npm run migration:run
 
