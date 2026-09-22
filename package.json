@@ -32,6 +32,7 @@
     "concurrency-e2e": "ts-node -r tsconfig-paths/register scripts/concurrency-e2e.ts",
     "payments-check": "ts-node -r tsconfig-paths/register scripts/payments-check.ts",
     "events-check": "ts-node -r tsconfig-paths/register scripts/events-check.ts",
+    "demo": "ts-node -r tsconfig-paths/register scripts/demo/index.ts",
     "test": "jest",
     "test:unit": "jest",
     "test:watch": "jest --watch",
