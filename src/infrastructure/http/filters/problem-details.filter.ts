@@ -35,7 +35,8 @@ export interface ProblemDetails {
   errors?: ProblemDetailsErrorItem[];
 }
 
-interface ProblemShape {
+/** Exported so the controller (step 12) can mark `idempotency_keys` COMPLETED with the exact status/body the client is about to receive, without duplicating this mapping. */
+export interface ProblemShape {
   status: number;
   type: string;
   title: string;
@@ -77,7 +78,7 @@ function extractValidationErrors(
  * reference that discriminates the problem type, and this codebase has no
  * documentation site to point them at.
  */
-function buildProblem(exception: unknown): ProblemShape {
+export function buildProblem(exception: unknown): ProblemShape {
   if (exception instanceof BadRequestException) {
     return {
       status: HttpStatus.BAD_REQUEST,

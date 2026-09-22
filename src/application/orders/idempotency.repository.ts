@@ -63,21 +63,25 @@ export interface InsertInProgressParams {
  * Its own autocommit statement, called before any other work begins
  * (Risks table) — never inside the same transaction as Phase 1's
  * reservation. Lets the unique `(scope, idempotency_key)` violation
- * propagate; step 12's `problem-details.filter.ts` maps it to `409`.
+ * propagate; step 12's controller maps it to `409`/`422`/replay.
+ * Returns the new row's `id`, which step 12 needs later to mark it
+ * `COMPLETED`.
  */
 export async function insertInProgress(
   dataSource: DataSource,
   params: InsertInProgressParams,
-): Promise<void> {
+): Promise<string> {
   const expiresAt = new Date(
     Date.now() + IDEMPOTENCY_KEY_TTL_HOURS * 60 * 60 * 1000,
   );
-  await dataSource.query(
+  const rows: { id: string }[] = await dataSource.query(
     `INSERT INTO idempotency_keys
        (scope, idempotency_key, request_fingerprint, state, expires_at)
-     VALUES ($1, $2, $3, 'IN_PROGRESS', $4)`,
+     VALUES ($1, $2, $3, 'IN_PROGRESS', $4)
+     RETURNING id`,
     [SCOPE, params.idempotencyKey, params.requestFingerprint, expiresAt],
   );
+  return rows[0].id;
 }
 
 /**
