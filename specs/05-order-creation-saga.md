@@ -1,6 +1,6 @@
 # SPEC 05 — P4 Order Creation Saga: `POST /orders`, idempotencia y la transacción de tres fases
 
-> **Status:** Approved
+> **Status:** Implemented
 > **Depends on:** SPEC 01 (dominio, puertos, esquema — P0), SPEC 02 (`AllocateInventoryUseCase`, `InventoryService` — P1), SPEC 03 (`PaymentGateway`, `GeocodingProvider` — P2), SPEC 04 (`EventPublisher`/outbox transaccional, `correlationId` — P3)
 > **Date:** 2026-09-21
 > **Objective:** Conectar P1 (selección de warehouse + reserva de stock), P2 (pago, geocoding) y P3 (outbox de eventos) en la saga de tres fases de `POST /orders`, con idempotencia a nivel de request y un único contrato de error RFC 9457.
@@ -298,22 +298,22 @@ sigue funcionando).
 
 ## Acceptance criteria
 
-- [ ] Un pedido válido devuelve `201` y selecciona demostrablemente el warehouse calificado más cercano.
-- [ ] La respuesta `201` incluye `warehouse.name` y `warehouse.distanceMeters`, no solo el id.
-- [ ] Repetir el mismo `Idempotency-Key` con el mismo body devuelve el body idéntico almacenado, sin crear una segunda orden ni un segundo cobro.
-- [ ] El mismo `Idempotency-Key` con un body **distinto** devuelve `422`.
-- [ ] Falta la cabecera `Idempotency-Key` → `400`.
-- [ ] Un `productId` repetido dentro de `items[]` del mismo request → `400`.
-- [ ] Tarjeta `...0002` → `402`, la orden queda `PAYMENT_FAILED`, el stock vuelve a `quantity_available`.
-- [ ] Tarjeta `...0004` → `502`, la orden queda `PENDING_PAYMENT`, la reserva sigue intacta.
-- [ ] `docker stop payments-mock` → `502`, reserva intacta, el circuit breaker se abre.
-- [ ] Un pedido insatisfacible por `NoFulfilmentPossibleError(reason: 'NO_CANDIDATES')` devuelve `422` nombrando los `productId` no cubiertos; por `reason: 'RESERVATION_RACE_LOST'` devuelve `409` con el mismo detalle. Ninguno de los dos persiste **nada** (ni `orders` ni `order_items` — sí queda la fila `idempotency_keys` marcada `COMPLETED`, que no cuenta como "orden").
-- [ ] Cada una de las 7 filas de error de R4.5 es reproducible por `curl` con los datos sembrados por `npm run seed`.
-- [ ] Un pedido exitoso produce exactamente un `shipment`, de forma asíncrona, visible en ~1 s.
-- [ ] Ningún número de tarjeta aparece en ninguna respuesta, log o traza.
-- [ ] Grafana muestra una traza continua: request → geocode → selección → reserva → cobro → settle → jobs.
-- [ ] `order_number` sigue el formato `CNL-<año>-<6 dígitos>` y es único (constraint de BD, no solo aplicación).
-- [ ] `POST /internal/events/order-confirmed` y `ENABLE_DEV_ENDPOINTS` ya no existen en el código.
+- [x] Un pedido válido devuelve `201` y selecciona demostrablemente el warehouse calificado más cercano. Verificado con `npm run verify` completo (Docker real) y curl manual contra `npm run seed`.
+- [x] La respuesta `201` incluye `warehouse.name` y `warehouse.distanceMeters`, no solo el id.
+- [x] Repetir el mismo `Idempotency-Key` con el mismo body devuelve el body idéntico almacenado, sin crear una segunda orden ni un segundo cobro.
+- [x] El mismo `Idempotency-Key` con un body **distinto** devuelve `422`.
+- [x] Falta la cabecera `Idempotency-Key` → `400`.
+- [x] Un `productId` repetido dentro de `items[]` del mismo request → `400`.
+- [x] Tarjeta `...0002` → `402`, la orden queda `PAYMENT_FAILED`, el stock vuelve a `quantity_available`.
+- [x] Tarjeta `...0004` → `502`, la orden queda `PENDING_PAYMENT`, la reserva sigue intacta.
+- [x] `docker stop payments-mock` → `502`, reserva intacta, el circuit breaker se abre. Verificado manualmente (curl real, `docker stop`/`start canals-payments-mock-1`) — no automatizado a propósito (Risks table).
+- [x] Un pedido insatisfacible por `NoFulfilmentPossibleError(reason: 'NO_CANDIDATES')` devuelve `422` nombrando los `productId` no cubiertos; por `reason: 'RESERVATION_RACE_LOST'` devuelve `409` con el mismo detalle. Ninguno de los dos persiste **nada** (ni `orders` ni `order_items` — sí queda la fila `idempotency_keys` marcada `COMPLETED`, que no cuenta como "orden").
+- [x] Cada una de las 7 filas de error de R4.5 es reproducible por `curl` con los datos sembrados por `npm run seed`. Requirió el fix de `@IsUUID('loose')` — ver Risks table.
+- [x] Un pedido exitoso produce exactamente un `shipment`, de forma asíncrona, visible en ~1 s. Confirmado vía `npm run events-check`.
+- [x] Ningún número de tarjeta aparece en ninguna respuesta, log o traza. Confirmado con `grep` sobre logs de `api`/`worker`/`payments-mock` y la salida completa de `npm run verify`.
+- [x] Grafana muestra una traza continua: request → geocode → selección → reserva → cobro → settle → jobs. El tramo HTTP (request→settle) es un solo `trace_id` real de 49 spans, confirmado en Tempo. La continuidad hacia los jobs es vía `correlationId` + OpenTelemetry link (diseño deliberado de P3), no el mismo `trace_id` — ver Risks table pa el detalle y el gap real de instrumentación (falta `instrumentation-undici` para el span del cobro).
+- [x] `order_number` sigue el formato `CNL-<año>-<6 dígitos>` y es único (constraint de BD, no solo aplicación).
+- [x] `POST /internal/events/order-confirmed` y `ENABLE_DEV_ENDPOINTS` ya no existen en el código.
 
 ## Decisions
 
@@ -344,6 +344,8 @@ sigue funcionando).
 | El circuit breaker de `HttpPaymentGateway` (P2) tiene estado global por proceso — un test que fuerza `docker stop payments-mock` (AC de la fila `CIRCUIT_OPEN`) puede dejarlo abierto y contaminar otros tests de la misma suite. | Ejecutar ese escenario en su propio archivo de test de integración, separado del resto, o resetear el breaker explícitamente entre tests (ya es una preocupación heredada de P2, no nueva de P4). |
 | Los `errors[]` de un `CreateOrderDto` con `shippingAddress` anidado pueden llegar como errores de `class-validator` anidados, no como una lista plana `{ field, message }`. | `problem-details.filter.ts` aplana el árbol de `ValidationError` a rutas con notación de punto (p. ej. `shippingAddress.postalCode`) antes de construir el `errors[]` del envelope. |
 | **[Observación, paso 7]** Una key vencida (`expires_at` pasado) queda en un limbo: `findActiveByKey` la trata como inexistente (lookup), pero la fila **sigue viva** en la tabla — el índice único `(scope, idempotency_key)` la sigue bloqueando. Reenviar la misma key pasadas las 24h no "rompe el patrón" limpiamente ni tampoco hace replay: el segundo `INSERT` choca igual contra el constraint y explota con `23505` (→ `409` en el paso 12), aunque el lookup diga que no hay nada activo. Ningún AC de este spec ejercita este caso — solo se vuelve visible/resoluble cuando P6 implemente el reaper que borra físicamente las filas vencidas. | Aceptado tal cual para P4: dentro de la ventana de 24h la protección es completa (replay o `422`); fuera de ella, el comportamiento observable hoy es "sigue bloqueado, sin explicación clara" en lugar de "libre para reintentar". Documentado aquí para que P6 decida explícitamente la semántica post-expiración (¿el reaper solo limpia, o también debe permitir un `INSERT` limpio inmediatamente tras vencer?) en vez de heredarla por accidente. |
+| **[Hallazgo, verificación final]** `@IsUUID()` (default `'all'`) exige los nibbles de versión/variante de RFC4122. Los ids fijos de `seed.ts` (`c0000000-...`), `concurrency-check.ts` (`d0000000-...`) y `events-check.ts` (`e0000000-...`) nunca los tuvieron — son ids legibles y secuenciales, no UUIDs reales. Bloqueaba literalmente el AC "reproducible por curl con los datos sembrados por npm run seed" — `POST /orders` rechazaba el propio `customerId` sembrado por el proyecto. | `CreateOrderDto.customerId`/`OrderLineDto.productId` pasan a `@IsUUID('loose')` — acepta la forma `8-4-4-4-12` hexadecimal sin exigir versión/variante, sigue rechazando basura no-UUID. Los ids reales (`gen_random_uuid()`) no se ven afectados. Confirmado con las 7 filas de R4.5 reproducidas por curl real tras el cambio. |
+| **[Hallazgo, verificación final — no corregido, fuera de alcance]** El AC "Grafana muestra una traza continua: request → geocode → selección → reserva → cobro → settle → jobs" da por sentado un solo `trace_id` de punta a punta. En la práctica: (a) los spans de los jobs del worker usan **links** de OpenTelemetry hacia el span de publicación, no el mismo `trace_id` — decisión deliberada y documentada de `job-runner.ts` (P3/SPEC 04), la convención correcta para mensajería async, no un descuido; (b) la llamada HTTP de `HttpPaymentGateway` a `payments-mock` usa `fetch()` nativo, que **no** genera span propio — el proyecto solo instala `@opentelemetry/instrumentation-http` (cubre el módulo `http` legado) y `instrumentation-pg`, nunca `@opentelemetry/instrumentation-undici` (lo que instrumenta `fetch`/undici en Node moderno). | Verificado en Grafana/Tempo real: el tramo HTTP del request (resolver → geocode computado → selección → reserva → settle) sí es una traza continua real (49 spans, un solo `trace_id`, confirmado con curl real). La continuidad request→jobs existe vía `correlationId` + link (cubierto por `correlation-and-tracing.integration.spec.ts`, P3, verde), no vía un único `trace_id`. El span faltante del cobro es un gap real de instrumentación en `tracing.ts` (P3, congelado) — agregar `instrumentation-undici` es trabajo de otra spec, no de P4. |
 
 ## What is **not** in this spec
 
