@@ -132,7 +132,7 @@ export class HttpPaymentGateway implements PaymentGateway {
 
   private async getCharge(idempotencyKey: string): Promise<ProviderResponse> {
     const response = await this.fetchAttempt(
-      `${this.baseUrl}/charge/${idempotencyKey}`,
+      `${this.baseUrl}/charge/${encodeURIComponent(idempotencyKey)}`,
       {},
     );
     return this.toProviderResponse(response);
@@ -222,6 +222,12 @@ function mapChargeResponse(
   };
 }
 
+/**
+ * SPEC 07 Fix B: every non-`404` answer used to map to `CAPTURED` — a
+ * `400`, `401`, `422`, `429` or a `200` with an unexpected body all read as
+ * "the customer was charged". Reconciliation (R6.2) trusts this function,
+ * so an unrecognised answer must be `UNKNOWN`, never a guess (Decisions).
+ */
 function mapStatusResponse(response: ProviderResponse): ChargeResult {
   const rawResponse = redact(response.body);
 
@@ -238,16 +244,31 @@ function mapStatusResponse(response: ProviderResponse): ChargeResult {
 
   const providerPaymentId = readStringField(response.body, 'id');
   const cardLast4 = readStringField(response.body, 'cardLast4');
-  const status: PaymentStatus =
-    readStringField(response.body, 'status') === 'declined'
-      ? 'DECLINED'
-      : 'CAPTURED';
+  const providerStatus = readStringField(response.body, 'status');
+  const okStatus: number = 200;
+  const status: PaymentStatus | null =
+    response.httpStatus === okStatus && providerStatus === 'approved'
+      ? 'CAPTURED'
+      : response.httpStatus === okStatus && providerStatus === 'declined'
+        ? 'DECLINED'
+        : null;
+
+  if (status === null) {
+    return {
+      status: 'UNKNOWN',
+      providerPaymentId,
+      cardLast4,
+      cardBrand: null,
+      failureCode: 'INVALID_REQUEST',
+      rawResponse,
+    };
+  }
   return {
     status,
     providerPaymentId,
     cardLast4,
     cardBrand: null,
-    failureCode: null,
+    failureCode: status === 'DECLINED' ? 'CARD_DECLINED' : null,
     rawResponse,
   };
 }
