@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 import type { OrderStatus } from '../../../domain/enum-types/order-status';
+import type { PaymentStatus } from '../../../domain/enum-types/payment-status';
+import type { ShipmentStatus } from '../../../domain/enum-types/shipment-status';
 
 export interface OrderRow {
   id: string;
@@ -32,6 +34,30 @@ export interface OrdersPageFilters {
   createdAtTo?: Date;
   cursor?: { createdAt: Date; id: string };
   pageSize: number;
+}
+
+export interface OrderDetailRow extends OrderRow {
+  shipping_address: Record<string, unknown>;
+  warehouse_name: string | null;
+  distance_meters: number | null;
+}
+
+export interface PaymentAttemptRow {
+  attempt: number;
+  status: PaymentStatus;
+  amount_cents: string;
+  currency: string;
+  failure_code: string | null;
+  settled_at: Date | null;
+  created_at: Date;
+}
+
+export interface ShipmentRow {
+  status: ShipmentStatus;
+  carrier: string | null;
+  tracking_number: string | null;
+  dispatched_at: Date | null;
+  delivered_at: Date | null;
 }
 
 const ORDER_ROW_COLUMNS =
@@ -115,5 +141,51 @@ export class OrdersReadRepository {
     );
 
     return rows;
+  }
+
+  /**
+   * specs/06-read-side.md, Decisions — `LEFT JOIN warehouses`, not `INNER
+   * JOIN`: `warehouse_id` is nullable in the schema, and this endpoint
+   * must not assume SPEC 05's own invariant (it always fills it before
+   * insert) — a null `warehouse_id` still returns the order, with
+   * `warehouse_name`/`distance_meters` coming back `null` from the
+   * unmatched join, no `CASE` needed.
+   */
+  async findOrderById(id: string): Promise<OrderDetailRow | null> {
+    const rows: OrderDetailRow[] = await this.dataSource.query(
+      `SELECT o.id, o.order_number, o.customer_id, o.warehouse_id, o.status,
+              o.currency, o.total_cents, o.created_at, o.shipping_address,
+              w.name AS warehouse_name,
+              ST_Distance(w.location, o.shipping_location) AS distance_meters
+       FROM orders o
+       LEFT JOIN warehouses w ON w.id = o.warehouse_id
+       WHERE o.id = $1`,
+      [id],
+    );
+
+    return rows[0] ?? null;
+  }
+
+  async findPaymentsByOrderId(orderId: string): Promise<PaymentAttemptRow[]> {
+    const rows: PaymentAttemptRow[] = await this.dataSource.query(
+      `SELECT attempt, status, amount_cents, currency, failure_code, settled_at, created_at
+       FROM payments
+       WHERE order_id = $1
+       ORDER BY attempt ASC`,
+      [orderId],
+    );
+
+    return rows;
+  }
+
+  async findShipmentByOrderId(orderId: string): Promise<ShipmentRow | null> {
+    const rows: ShipmentRow[] = await this.dataSource.query(
+      `SELECT status, carrier, tracking_number, dispatched_at, delivered_at
+       FROM shipments
+       WHERE order_id = $1`,
+      [orderId],
+    );
+
+    return rows[0] ?? null;
   }
 }

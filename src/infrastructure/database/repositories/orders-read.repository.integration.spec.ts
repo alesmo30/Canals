@@ -3,9 +3,12 @@ import { randomUUID } from 'crypto';
 import { OrdersReadRepository } from './orders-read.repository';
 import { AppDataSource } from '../data-source';
 import { CustomerOrmEntity } from '../entities/customer.orm-entity';
-import { OrderOrmEntity } from '../entities/order.orm-entity';
-import { ProductOrmEntity } from '../entities/product.orm-entity';
 import { OrderItemOrmEntity } from '../entities/order-item.orm-entity';
+import { OrderOrmEntity } from '../entities/order.orm-entity';
+import { PaymentOrmEntity } from '../entities/payment.orm-entity';
+import { ProductOrmEntity } from '../entities/product.orm-entity';
+import { ShipmentOrmEntity } from '../entities/shipment.orm-entity';
+import { WarehouseOrmEntity } from '../entities/warehouse.orm-entity';
 
 /**
  * Integration test — DATABASE_URL (+ PAYMENTS_URL,
@@ -138,5 +141,84 @@ describe('OrdersReadRepository (integration)', () => {
     expect(rows).toHaveLength(2);
     expect(rows.find((row) => row.order_id === orderA.id)?.quantity).toBe(2);
     expect(rows.find((row) => row.order_id === orderB.id)?.quantity).toBe(5);
+  });
+
+  it('findOrderById returns the order with its warehouse name/distance, and findPaymentsByOrderId/findShipmentByOrderId return the seeded rows', async () => {
+    const warehouse = await AppDataSource.getRepository(
+      WarehouseOrmEntity,
+    ).save({
+      name: `Test WH ${randomUUID()}`,
+      address: { line1: '1 Warehouse Rd', city: 'Newark', country: 'US' },
+      location: { type: 'Point', coordinates: [-74.172363, 40.735657] },
+      isActive: true,
+    });
+
+    const order = await AppDataSource.getRepository(OrderOrmEntity).save({
+      ...orderPayload(200, new Date()),
+      warehouseId: warehouse.id,
+    });
+
+    await AppDataSource.getRepository(PaymentOrmEntity).save({
+      orderId: order.id,
+      attempt: 1,
+      provider: 'mock',
+      providerPaymentId: null,
+      idempotencyKey: `idem-${randomUUID()}`,
+      status: 'DECLINED',
+      amountCents: 1000,
+      currency: 'USD',
+      cardLast4: null,
+      cardBrand: null,
+      failureCode: 'CARD_DECLINED',
+      rawResponse: null,
+      settledAt: null,
+    });
+    await AppDataSource.getRepository(PaymentOrmEntity).save({
+      orderId: order.id,
+      attempt: 2,
+      provider: 'mock',
+      providerPaymentId: null,
+      idempotencyKey: `idem-${randomUUID()}`,
+      status: 'CAPTURED',
+      amountCents: 1000,
+      currency: 'USD',
+      cardLast4: '4242',
+      cardBrand: 'visa',
+      failureCode: null,
+      rawResponse: { ok: true },
+      settledAt: new Date(),
+    });
+
+    await AppDataSource.getRepository(ShipmentOrmEntity).save({
+      orderId: order.id,
+      warehouseId: warehouse.id,
+      status: 'PENDING_DISPATCH',
+      carrier: null,
+      trackingNumber: null,
+      dispatchedAt: null,
+      deliveredAt: null,
+    });
+
+    const detail = await repo.findOrderById(order.id);
+    expect(detail).not.toBeNull();
+    expect(detail?.warehouse_name).toBe(warehouse.name);
+    expect(detail?.distance_meters).toBeGreaterThan(0);
+    expect(detail?.shipping_address).toEqual(order.shippingAddress);
+
+    const payments = await repo.findPaymentsByOrderId(order.id);
+    expect(payments).toHaveLength(2);
+    expect(payments.map((payment) => payment.attempt)).toEqual([1, 2]);
+    expect(payments.map((payment) => payment.status)).toEqual([
+      'DECLINED',
+      'CAPTURED',
+    ]);
+
+    const shipment = await repo.findShipmentByOrderId(order.id);
+    expect(shipment?.status).toBe('PENDING_DISPATCH');
+  });
+
+  it('findOrderById returns null for an id that does not exist (never throws)', async () => {
+    const result = await repo.findOrderById(randomUUID());
+    expect(result).toBeNull();
   });
 });
