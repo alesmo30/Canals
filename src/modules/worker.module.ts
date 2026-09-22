@@ -8,6 +8,7 @@ import { ShipmentService } from '../application/jobs/shipment.service';
 import { CustomerNotifyHandler } from '../application/jobs/customer-notify.handler';
 import { AnalyticsRecordHandler } from '../application/jobs/analytics-record.handler';
 import { ReservationReaperHandler } from '../application/jobs/reservation-reaper.handler';
+import { PaymentReconciliationHandler } from '../application/jobs/payment-reconciliation.handler';
 import { InventoryService } from '../application/allocation/inventory.service';
 import { OrderSettlementService } from '../application/orders/order-settlement.service';
 
@@ -28,6 +29,7 @@ import { OrderSettlementService } from '../application/orders/order-settlement.s
     InventoryService,
     OrderSettlementService,
     ReservationReaperHandler,
+    PaymentReconciliationHandler,
     {
       provide: JOB_HANDLERS,
       inject: [
@@ -35,13 +37,21 @@ import { OrderSettlementService } from '../application/orders/order-settlement.s
         CustomerNotifyHandler,
         AnalyticsRecordHandler,
         ReservationReaperHandler,
+        PaymentReconciliationHandler,
       ],
       useFactory: (
         shipmentCreate: ShipmentCreateHandler,
         customerNotify: CustomerNotifyHandler,
         analyticsRecord: AnalyticsRecordHandler,
         reservationReaper: ReservationReaperHandler,
-      ) => [shipmentCreate, customerNotify, analyticsRecord, reservationReaper],
+        paymentReconciliation: PaymentReconciliationHandler,
+      ) => [
+        shipmentCreate,
+        customerNotify,
+        analyticsRecord,
+        reservationReaper,
+        paymentReconciliation,
+      ],
     },
   ],
 })
