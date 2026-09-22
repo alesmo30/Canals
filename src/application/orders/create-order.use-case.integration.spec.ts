@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 
 import { PgBoss } from 'pg-boss';
 
+import { OrderSettlementService } from './order-settlement.service';
 import { CreateOrderUseCase } from './create-order.use-case';
 import { InventoryService } from '../allocation/inventory.service';
 import { AllocateInventoryUseCase } from '../allocation/allocate-inventory.use-case';
@@ -48,10 +49,13 @@ describe('CreateOrderUseCase (integration) — full saga', () => {
         new InventoryService(),
         AppDataSource,
       ),
-      new InventoryService(),
+      new OrderSettlementService(
+        AppDataSource,
+        new InventoryService(),
+        new PgBossEventPublisher(boss),
+      ),
       new StaticGeocodingProvider(),
       new HttpPaymentGateway({ baseUrl: process.env.PAYMENTS_URL! }),
-      new PgBossEventPublisher(boss),
     );
 
     const customer = await AppDataSource.getRepository(CustomerOrmEntity).save({

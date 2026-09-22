@@ -9,6 +9,7 @@ import { CreateOrderIdempotentService } from '../application/orders/create-order
 import { CreateOrderUseCase } from '../application/orders/create-order.use-case';
 import { GetOrderService } from '../application/orders/get-order.service';
 import { ListOrdersService } from '../application/orders/list-orders.service';
+import { OrderSettlementService } from '../application/orders/order-settlement.service';
 import { HealthController } from '../infrastructure/health/health.controller';
 import { PgBossHealthIndicator } from '../infrastructure/health/pg-boss.health-indicator';
 import { OrdersReadController } from '../infrastructure/http/controllers/orders-read.controller';
@@ -29,6 +30,7 @@ import { WarehouseSelectionRepository } from '../infrastructure/database/reposit
     WarehouseSelectionRepository,
     InventoryService,
     AllocateInventoryUseCase,
+    OrderSettlementService,
     CreateOrderUseCase,
     CreateOrderIdempotentService,
     OrdersReadRepository,

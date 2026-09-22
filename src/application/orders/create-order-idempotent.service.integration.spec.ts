@@ -4,6 +4,7 @@ import { PgBoss } from 'pg-boss';
 
 import { CreateOrderIdempotentService } from './create-order-idempotent.service';
 import { CreateOrderUseCase } from './create-order.use-case';
+import { OrderSettlementService } from './order-settlement.service';
 import { AllocateInventoryUseCase } from '../allocation/allocate-inventory.use-case';
 import { InventoryService } from '../allocation/inventory.service';
 import { CreateOrderDto } from '../../infrastructure/http/dto/create-order.dto';
@@ -53,10 +54,13 @@ describe('CreateOrderIdempotentService (integration) — Fix C order_id recordin
         new InventoryService(),
         AppDataSource,
       ),
-      new InventoryService(),
+      new OrderSettlementService(
+        AppDataSource,
+        new InventoryService(),
+        new PgBossEventPublisher(boss),
+      ),
       new StaticGeocodingProvider(),
       new HttpPaymentGateway({ baseUrl: process.env.PAYMENTS_URL! }),
-      new PgBossEventPublisher(boss),
     );
     service = new CreateOrderIdempotentService(useCase, AppDataSource);
 
