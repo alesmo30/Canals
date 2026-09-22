@@ -4,6 +4,7 @@ import { isUUID } from 'class-validator';
 import { OrderNotFoundError } from './order-read.errors';
 import {
   OrderDetailRow,
+  OrderItemRow,
   OrdersReadRepository,
   PaymentAttemptRow,
   ShipmentRow,
@@ -11,6 +12,7 @@ import {
 
 export interface GetOrderResult {
   order: OrderDetailRow;
+  items: OrderItemRow[];
   payments: PaymentAttemptRow[];
   shipment: ShipmentRow | null;
 }
@@ -22,6 +24,11 @@ export interface GetOrderResult {
  * reaching the database for a malformed id. `'loose'` — same reasoning as
  * CreateOrderDto's `productId`/`customerId` (this codebase's own fixed
  * test/seed ids are readable, non-v4 "uuid-shaped" strings).
+ *
+ * Items come from `findItemsByOrderIds` (step 4) — the response's
+ * `items` field (Decisions, DTOs de respuesta) has no other source, so
+ * this joins step 4's query to the three from step 7, still all
+ * independent and run together.
  */
 @Injectable()
 export class GetOrderService {
@@ -32,9 +39,9 @@ export class GetOrderService {
       throw new OrderNotFoundError(id);
     }
 
-    // Independent queries (step 7) — no reason to serialize them.
-    const [order, payments, shipment] = await Promise.all([
+    const [order, items, payments, shipment] = await Promise.all([
       this.ordersReadRepository.findOrderById(id),
+      this.ordersReadRepository.findItemsByOrderIds([id]),
       this.ordersReadRepository.findPaymentsByOrderId(id),
       this.ordersReadRepository.findShipmentByOrderId(id),
     ]);
@@ -43,6 +50,6 @@ export class GetOrderService {
       throw new OrderNotFoundError(id);
     }
 
-    return { order, payments, shipment };
+    return { order, items, payments, shipment };
   }
 }
