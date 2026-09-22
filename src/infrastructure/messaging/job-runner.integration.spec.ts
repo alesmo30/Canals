@@ -12,6 +12,7 @@ import {
   QUEUE_RETRY_DELAY_SECONDS,
   QUEUE_RETRY_LIMIT,
   QUEUE_TOPOLOGY,
+  SCHEDULED_JOBS,
   setupQueues,
 } from './queue-setup';
 import { AppConfig } from '../config/env.schema';
@@ -21,6 +22,7 @@ import { ShipmentService } from '../../application/jobs/shipment.service';
 import { CustomerNotifyHandler } from '../../application/jobs/customer-notify.handler';
 import { AnalyticsRecordHandler } from '../../application/jobs/analytics-record.handler';
 import { AppDataSource } from '../database/data-source';
+import { getCorrelationId } from '../observability/correlation';
 
 /**
  * SPEC 04 step 6 — requires DATABASE_URL (+ PAYMENTS_URL,
@@ -283,4 +285,66 @@ describe('JobRunner — retries and dead-letter queues (integration)', () => {
     const dlq = await boss.getQueue('shipment.create.dlq');
     expect(dlq?.retentionSeconds).toBe(DLQ_RETENTION_DAYS * 24 * 60 * 60);
   });
+});
+
+describe('JobRunner — scheduled jobs (SPEC 07 step 7)', () => {
+  let boss: PgBoss;
+
+  beforeAll(async () => {
+    await AppDataSource.initialize();
+    boss = new PgBoss({ connectionString: process.env.DATABASE_URL, max: 2 });
+    await boss.start();
+    await setupQueues(boss);
+  });
+
+  afterAll(async () => {
+    await boss.stop();
+    await AppDataSource.destroy();
+  });
+
+  it('start() schedules both SCHEDULED_JOBS queues, listed by boss.getSchedules()', async () => {
+    const runner = new JobRunner(boss, [], FAST_CONFIG_SERVICE);
+    await runner.start();
+
+    const schedules = await boss.getSchedules();
+    const scheduledNames = schedules.map((schedule) => schedule.name);
+    for (const { queue } of SCHEDULED_JOBS) {
+      expect(scheduledNames).toContain(queue);
+    }
+  });
+
+  it('a job with { payload: {} } and no meta runs its handler with a generated correlationId', async () => {
+    const suffix = Date.now();
+    const queueName = `debug.no-meta.${suffix}`;
+    await boss.createQueue(queueName, { retryLimit: 0 });
+
+    let observedCorrelationId: string | undefined;
+    let observedPayload: unknown;
+    const handler: JobHandler<unknown> = {
+      queue: queueName,
+      handle: (payload) => {
+        observedCorrelationId = getCorrelationId();
+        observedPayload = payload;
+        return Promise.resolve();
+      },
+    };
+    const runner = new JobRunner(boss, [handler], FAST_CONFIG_SERVICE);
+    await runner.start();
+
+    // Mirrors exactly what boss.schedule(queue, cron, { payload: {} })
+    // inserts — no meta field at all, the same shape a scheduled job's
+    // own tick produces.
+    await boss.send(queueName, { payload: {} });
+
+    await waitUntil(
+      () => Promise.resolve(observedCorrelationId !== undefined),
+      10_000,
+    );
+    await boss.offWork(queueName);
+
+    expect(observedCorrelationId).toBeDefined();
+    expect(observedPayload).toEqual({});
+
+    await boss.deleteQueue(queueName);
+  }, 15_000);
 });

@@ -30,6 +30,23 @@ export const QUEUE_TOPOLOGY: readonly QueueTopologyEntry[] = [
   { queue: 'analytics.record', deadLetter: 'analytics.record.dlq' },
 ];
 
+export interface ScheduledJobEntry {
+  readonly queue: string;
+  readonly cron: string;
+}
+
+/**
+ * SPEC 07 — the reservation reaper (R6.1) and payment reconciliation
+ * (R6.2), run every minute by the worker's own scheduler
+ * (`JobRunner.start()`). No `deadLetter` here (below): a failed run is
+ * simply the next minute's run — a dead-letter copy of an empty tick is
+ * noise.
+ */
+export const SCHEDULED_JOBS: readonly ScheduledJobEntry[] = [
+  { queue: 'reservation.reap', cron: '* * * * *' },
+  { queue: 'payment.reconcile', cron: '* * * * *' },
+];
+
 const SECONDS_PER_DAY = 24 * 60 * 60;
 
 /**
@@ -55,5 +72,9 @@ export async function setupQueues(boss: PgBoss): Promise<void> {
       retryDelay: QUEUE_RETRY_DELAY_SECONDS,
       retryDelayMax: QUEUE_RETRY_DELAY_MAX_SECONDS,
     });
+  }
+
+  for (const { queue } of SCHEDULED_JOBS) {
+    await boss.createQueue(queue, { retryLimit: 0 });
   }
 }
