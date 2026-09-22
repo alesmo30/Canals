@@ -38,8 +38,9 @@ lerna-debug.log*
 !.vscode/launch.json
 !.vscode/extensions.json
 
-# Claude Code local config — machine-specific, never checked in
-.claude/
+# Claude Code — settings.json is shared/project config (checked in);
+# settings.local.json is personal, machine-specific, never checked in
+.claude/settings.local.json
 
 # swap
 [._]*.s[a-v][a-z]
