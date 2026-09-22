@@ -33,4 +33,30 @@ export const pinoOptions: LoggerOptions = {
   formatters: {
     log: (object: Record<string, unknown>) => redact(object),
   },
+  hooks: {
+    // SPEC 07 Fix A: `formatters.log` only sees the merge object — the
+    // message string (`logger.info('… 4242… failed')`), printf-style
+    // interpolation values, and an `Error` passed positionally all bypass
+    // it. `logMethod` is pino's hook over the raw positional arguments,
+    // before it builds the line, so together with `formatters.log` above
+    // it covers the whole line.
+    //
+    // A plain merging object at position 0 (`logger.info({ cardNumber },
+    // 'msg')`) is left alone here: `formatters.log` already redacts it once
+    // it is merged into the log object, and `redact()`'s key-based masking
+    // is not idempotent (`maskCardValue` strips the mask's own `*`
+    // characters as "not a digit" and remasks just the last four), so
+    // redacting it twice corrupts it.
+    logMethod(args, method) {
+      const redactedArgs = args.map((arg, index) =>
+        index === 0 &&
+        typeof arg === 'object' &&
+        arg !== null &&
+        !(arg instanceof Error)
+          ? arg
+          : redact(arg),
+      );
+      return method.apply(this, redactedArgs as typeof args);
+    },
+  },
 };
