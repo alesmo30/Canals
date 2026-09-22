@@ -48,7 +48,15 @@ export class ShippingAddressDto {
 }
 
 export class OrderLineDto {
-  @IsUUID()
+  // 'loose': accepts any 8-4-4-4-12 hex-dash shape, not just RFC4122's
+  // version/variant nibbles. Real ids are gen_random_uuid() (always
+  // valid v4), but this codebase's own fixed test/seed ids
+  // (seed.ts's a0000000-.../b0000000-..., concurrency-check.ts's
+  // d0000000-..., events-check.ts's e0000000-...) are deliberately
+  // readable, sequential, non-v4 "uuid-shaped" strings — 'all' (the
+  // default) rejects them outright, which would make POST /orders
+  // impossible to exercise against npm run seed's own data.
+  @IsUUID('loose')
   productId!: string;
 
   @IsInt()
@@ -93,7 +101,8 @@ function UniqueProductIds(validationOptions?: ValidationOptions) {
 }
 
 export class CreateOrderDto {
-  @IsUUID()
+  // 'loose' — see OrderLineDto.productId's comment above.
+  @IsUUID('loose')
   customerId!: string;
 
   @ValidateNested()
