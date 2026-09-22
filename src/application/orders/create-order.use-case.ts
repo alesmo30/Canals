@@ -48,6 +48,11 @@ import type { OrderConfirmedPayload } from '../../infrastructure/messaging/event
 /** A second attempt is out of scope today (SPEC 03's handoff) — always 1. */
 const FIRST_PAYMENT_ATTEMPT = 1;
 
+/** SPEC 07 — the only two `ChargeResult.status` values that mean the provider gave a final answer. */
+function isDefinitiveOutcome(status: ChargeResult['status']): boolean {
+  return status === 'CAPTURED' || status === 'DECLINED';
+}
+
 /**
  * Phase 1's own result. `order`/`items` are the domain objects Phase 1
  * just persisted; `allocation` carries the winning warehouse's
@@ -279,7 +284,11 @@ export class CreateOrderUseCase {
       cardBrand: chargeResult.cardBrand,
       failureCode: chargeResult.failureCode,
       rawResponse: chargeResult.rawResponse,
-      settledAt: new Date(),
+      // SPEC 07: settled_at only for a definitive outcome — R6.2's
+      // `settled_at IS NULL` query is how reconciliation finds the
+      // UNKNOWN payments it exists to resolve; setting it here for every
+      // outcome would make that query miss exactly those rows.
+      settledAt: isDefinitiveOutcome(chargeResult.status) ? new Date() : null,
       updatedAt: new Date(),
     });
 
