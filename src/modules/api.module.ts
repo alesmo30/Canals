@@ -21,8 +21,8 @@ import { CorrelationMiddleware } from '../infrastructure/observability/correlati
 import { OrdersReadRepository } from '../infrastructure/database/repositories/orders-read.repository';
 import { WarehouseSelectionRepository } from '../infrastructure/database/repositories/warehouse-selection.repository';
 
-/** SPEC 07 R6.6 — 600/min/IP comfortably covers R6.3's burst (N + 20 = 70 by default); a named constant, not an env var (references/coding-conventions.md). */
-const RATE_LIMIT_PER_MINUTE = 600;
+/** SPEC 07 R6.6 — 600/min/IP comfortably covers R6.3's burst (N + 20 = 70 by default); a named constant, not an env var (references/coding-conventions.md). Exported so scripts/concurrency-e2e.ts can refuse an N whose burst would exceed it. */
+export const RATE_LIMIT_PER_MINUTE = 600;
 
 /** ThrottlerModule's own window, in ms — one minute. */
 const RATE_LIMIT_WINDOW_MS = 60_000;
