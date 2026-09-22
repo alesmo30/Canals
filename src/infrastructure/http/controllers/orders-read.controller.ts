@@ -1,4 +1,5 @@
 import { Controller, Get, Param, Query, ValidationPipe } from '@nestjs/common';
+import { ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { ListOrdersQueryDto } from '../dto/list-orders-query.dto';
 import {
@@ -18,6 +19,7 @@ import { ListOrdersService } from '../../../application/orders/list-orders.servi
  * prefix, no route collision: `@Get()` is `orders` exact, `@Get(':id')`
  * is `orders/:id`.
  */
+@ApiTags('orders')
 @Controller('orders')
 export class OrdersReadController {
   constructor(
@@ -33,6 +35,7 @@ export class OrdersReadController {
    * own fields.
    */
   @Get()
+  @ApiResponse({ status: 200, description: 'A page of orders.' })
   async list(
     @Query(
       new ValidationPipe({
@@ -48,6 +51,11 @@ export class OrdersReadController {
   }
 
   @Get(':id')
+  @ApiResponse({
+    status: 200,
+    description: 'The order, its items and its payments.',
+  })
+  @ApiResponse({ status: 404, description: 'No order with this id.' })
   async detail(@Param('id') id: string): Promise<OrderDetailResponse> {
     const result = await this.getOrderService.execute(id);
     return toOrderDetailResponse(result);

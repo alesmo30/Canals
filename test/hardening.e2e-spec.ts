@@ -3,6 +3,8 @@ import { randomUUID } from 'crypto';
 import { ValidationPipe } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test, TestingModule } from '@nestjs/testing';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import type { OpenAPIObject } from '@nestjs/swagger';
 import helmet from 'helmet';
 import request from 'supertest';
 
@@ -39,6 +41,17 @@ describe('HTTP hardening (e2e)', () => {
     app.use(helmet());
     app.enableCors({ origin: [ALLOWED_ORIGIN], methods: ['GET', 'POST'] });
     app.useBodyParser('json', { limit: BODY_LIMIT });
+
+    const openApiDocument = SwaggerModule.createDocument(
+      app,
+      new DocumentBuilder()
+        .setTitle('Canals API')
+        .setDescription('test')
+        .setVersion('1.0')
+        .build(),
+    );
+    SwaggerModule.setup('docs', app, openApiDocument);
+
     await app.init();
   });
 
@@ -91,4 +104,27 @@ describe('HTTP hardening (e2e)', () => {
 
     await request(app.getHttpServer()).get('/health').expect(200);
   }, 30_000);
+
+  it('GET /docs-json lists POST /orders, GET /orders and GET /orders/{id}, with the Idempotency-Key header documented', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/docs-json')
+      .expect(200);
+
+    const document = res.body as OpenAPIObject;
+    expect(document.paths['/orders']?.post).toBeDefined();
+    expect(document.paths['/orders']?.get).toBeDefined();
+    expect(document.paths['/orders/{id}']?.get).toBeDefined();
+
+    const idempotencyHeader = document.paths['/orders']?.post?.parameters?.find(
+      (param) => 'name' in param && param.name === 'Idempotency-Key',
+    );
+    expect(idempotencyHeader).toBeDefined();
+  });
+
+  it('GET /docs renders the Swagger UI HTML', async () => {
+    const res = await request(app.getHttpServer()).get('/docs').expect(200);
+
+    expect(res.headers['content-type']).toContain('text/html');
+    expect(res.text).toContain('swagger-ui');
+  });
 });

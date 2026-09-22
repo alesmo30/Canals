@@ -8,6 +8,8 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 
@@ -17,6 +19,9 @@ import { redact } from './infrastructure/http/redaction';
 
 /** SPEC 07 R6.6 — a value nobody tunes per deployment, so a constant, not an env var (references/coding-conventions.md). */
 const BODY_LIMIT = '16kb';
+
+/** SPEC 07 R6.6, Risks: Helmet's default CSP blocks Swagger UI's inline assets — relaxed for `/docs` only, not globally. */
+const DOCS_PATH_PREFIX = '/docs';
 
 async function bootstrap() {
   // abortOnError: false — without it, Nest's own bootstrap exception zone
@@ -47,8 +52,18 @@ async function bootstrap() {
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
   );
 
-  // SPEC 07 R6.6 — HTTP hardening.
-  app.use(helmet());
+  // SPEC 07 R6.6 — HTTP hardening. `/docs` gets Helmet's other headers
+  // but no CSP — Swagger UI's inline assets would otherwise be blocked
+  // (Risks) — every other route keeps the full default policy.
+  const defaultHelmet = helmet();
+  const docsHelmet = helmet({ contentSecurityPolicy: false });
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    (req.path.startsWith(DOCS_PATH_PREFIX) ? docsHelmet : defaultHelmet)(
+      req,
+      res,
+      next,
+    );
+  });
   const corsOrigins = app
     .get<ConfigService<AppConfig, true>>(ConfigService)
     .get('CORS_ORIGINS', { infer: true });
@@ -57,6 +72,23 @@ async function bootstrap() {
   // default json parser (same middleware name, "jsonParser") is never
   // added on top of this one — this becomes the only json body parser.
   app.useBodyParser('json', { limit: BODY_LIMIT });
+
+  // SPEC 07 R6.6 — OpenAPI at /docs. The request DTOs (CreateOrderDto,
+  // ListOrdersQueryDto) are introspected by the CLI plugin
+  // (nest-cli.json); the response DTOs are plain interfaces with no
+  // runtime metadata, so each route documents its outcomes with
+  // @ApiResponse descriptions instead of a generated schema.
+  const openApiDocument = SwaggerModule.createDocument(
+    app,
+    new DocumentBuilder()
+      .setTitle('Canals API')
+      .setDescription(
+        'Order creation (three-phase saga, Idempotency-Key) and read endpoints.',
+      )
+      .setVersion('1.0')
+      .build(),
+  );
+  SwaggerModule.setup('docs', app, openApiDocument);
 
   await app.listen(process.env.PORT ?? 3000);
 }
