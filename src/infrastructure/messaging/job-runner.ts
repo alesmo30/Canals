@@ -14,6 +14,7 @@ import type { JobWithMetadata, PgBoss } from 'pg-boss';
 import { PG_BOSS } from './pg-boss.provider';
 import { JobBody } from './job-envelope';
 import { AppConfig } from '../config/env.schema';
+import { redact } from '../http/redaction';
 import { correlationStorage } from '../observability/correlation';
 import { registerDlqGauge } from '../observability/dlq-gauge';
 import { WORKER_READINESS_FILE_PATH } from '../health/worker-readiness';
@@ -113,7 +114,13 @@ export class JobRunner implements OnApplicationShutdown {
                 const message =
                   error instanceof Error ? error.message : String(error);
                 span.recordException(error as Error);
-                span.setStatus({ code: SpanStatusCode.ERROR, message });
+                // SPEC 07 Fix A: the status message is not a span
+                // attribute, so RedactingSpanExporter does not cover it —
+                // redact it here instead.
+                span.setStatus({
+                  code: SpanStatusCode.ERROR,
+                  message: redact(message),
+                });
                 this.logger.warn({
                   queue: handler.queue,
                   jobId: job.id,
