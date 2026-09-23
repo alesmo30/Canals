@@ -139,7 +139,9 @@ describe('POST /orders (e2e)', () => {
     expect(body.status).toBe('CONFIRMED');
     expect(body.warehouse.id).toBe(warehouseId);
     expect(typeof body.warehouse.name).toBe('string');
-    expect(typeof body.warehouse.distanceMeters).toBe('number');
+    expect(typeof body.warehouse.distance.meters).toBe('number');
+    expect(typeof body.warehouse.distance.kilometers).toBe('number');
+    expect(typeof body.warehouse.distance.miles).toBe('number');
     expect(body.items).toHaveLength(1);
     expect(body.totalCents).toBe(1500);
     expect(body.paymentStatus).toBe('CAPTURED');

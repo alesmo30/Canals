@@ -114,6 +114,7 @@ export class JobRunner implements OnApplicationShutdown {
             attributes: {
               'messaging.destination.name': handler.queue,
               'messaging.message.id': job.id,
+              'app.correlation_id': correlationId,
             },
           });
 

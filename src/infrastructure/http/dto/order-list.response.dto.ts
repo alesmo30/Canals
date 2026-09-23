@@ -1,3 +1,4 @@
+import { formatCentsAsDollars } from './helpers/money-format.helper';
 import { OrderResponseItem } from './order-response.dto';
 import type { OrderStatus } from '../../../domain/enum-types/order-status';
 import type { ListOrdersResult } from '../../../application/orders/list-orders.service';
@@ -13,6 +14,7 @@ export interface OrderListItem {
   status: OrderStatus;
   warehouseId: string | null;
   totalCents: number;
+  totalDollars: string;
   currency: string;
   createdAt: string;
   items: OrderResponseItem[];
@@ -40,6 +42,7 @@ export function toOrderListItem(
     status: order.status,
     warehouseId: order.warehouse_id,
     totalCents: Number(order.total_cents),
+    totalDollars: formatCentsAsDollars(Number(order.total_cents)),
     currency: order.currency,
     createdAt: order.created_at.toISOString(),
     items: items.map((item) => ({
@@ -48,6 +51,7 @@ export function toOrderListItem(
       name: item.product_name_snapshot,
       quantity: item.quantity,
       unitPriceCents: Number(item.unit_price_cents),
+      unitPriceDollars: formatCentsAsDollars(Number(item.unit_price_cents)),
     })),
   };
 }

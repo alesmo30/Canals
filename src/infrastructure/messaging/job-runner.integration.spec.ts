@@ -95,7 +95,19 @@ describe('JobRunner — retries and dead-letter queues (integration)', () => {
 
   beforeAll(async () => {
     await AppDataSource.initialize();
-    boss = new PgBoss({ connectionString: process.env.DATABASE_URL, max: 2 });
+    // pg-boss's own dead-lettering (the "retries and DLQ" tests below)
+    // happens on its background supervise pass, not on job pickup —
+    // default superviseIntervalSeconds is 60s, so without this override
+    // the DLQ row can land anywhere from ~0s to ~60s after the last
+    // attempt fails, racing this file's 20s waitUntil budget. Sped up
+    // the same way FAST_CONFIG_SERVICE already speeds up JobRunner's own
+    // poll interval.
+    boss = new PgBoss({
+      connectionString: process.env.DATABASE_URL,
+      max: 2,
+      superviseIntervalSeconds: 1,
+      monitorIntervalSeconds: 1,
+    });
     await boss.start();
     await setupQueues(boss);
   });
@@ -227,7 +239,7 @@ describe('JobRunner — retries and dead-letter queues (integration)', () => {
           byName.get('analytics.record') === 'completed' &&
           byName.has('shipment.create.dlq')
         );
-      }, 20_000);
+      }, 30_000);
 
       for (const queue of QUEUE_TOPOLOGY.map((entry) => entry.queue)) {
         await boss.offWork(queue);

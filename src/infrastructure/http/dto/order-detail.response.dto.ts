@@ -1,3 +1,5 @@
+import { formatDistance } from './helpers/distance-format.helper';
+import { formatCentsAsDollars } from './helpers/money-format.helper';
 import {
   OrderResponseItem,
   OrderResponseWarehouse,
@@ -11,6 +13,7 @@ export interface OrderDetailPaymentAttempt {
   attempt: number;
   status: PaymentStatus;
   amountCents: number;
+  amountDollars: string;
   currency: string;
   failureCode: string | null;
   settledAt: string | null;
@@ -35,6 +38,7 @@ export interface OrderDetailResponse {
   payments: OrderDetailPaymentAttempt[];
   shipment: OrderDetailShipment | null;
   totalCents: number;
+  totalDollars: string;
   currency: string;
   createdAt: string;
 }
@@ -60,7 +64,7 @@ export function toOrderDetailResponse(
         ? {
             id: order.warehouse_id,
             name: order.warehouse_name,
-            distanceMeters: order.distance_meters ?? 0,
+            distance: formatDistance(order.distance_meters ?? 0),
           }
         : null,
     items: items.map((item) => ({
@@ -69,11 +73,13 @@ export function toOrderDetailResponse(
       name: item.product_name_snapshot,
       quantity: item.quantity,
       unitPriceCents: Number(item.unit_price_cents),
+      unitPriceDollars: formatCentsAsDollars(Number(item.unit_price_cents)),
     })),
     payments: payments.map((payment) => ({
       attempt: payment.attempt,
       status: payment.status,
       amountCents: Number(payment.amount_cents),
+      amountDollars: formatCentsAsDollars(Number(payment.amount_cents)),
       currency: payment.currency,
       failureCode: payment.failure_code,
       settledAt: payment.settled_at ? payment.settled_at.toISOString() : null,
@@ -93,6 +99,7 @@ export function toOrderDetailResponse(
         }
       : null,
     totalCents: Number(order.total_cents),
+    totalDollars: formatCentsAsDollars(Number(order.total_cents)),
     currency: order.currency,
     createdAt: order.created_at.toISOString(),
   };

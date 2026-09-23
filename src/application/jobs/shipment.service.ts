@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
+import {
+  generateTrackingNumber,
+  pickRandomCarrier,
+} from './helpers/shipment-mock.helpers';
+
 /**
  * `warehouse_id` comes from a subquery against the *same* `$1` rather than
  * `INSERT ... SELECT ... FROM orders`, so a non-existent `orderId` still
@@ -28,22 +33,40 @@ import { DataSource } from 'typeorm';
  *   database constraint reports it).
  */
 const INSERT_SHIPMENT_SQL = `
-  INSERT INTO shipments (order_id, warehouse_id, status)
-  VALUES ($1, (SELECT warehouse_id FROM orders WHERE id = $1), 'PENDING_DISPATCH')
+  INSERT INTO shipments (order_id, warehouse_id, status, carrier, tracking_number, dispatched_at)
+  VALUES ($1, (SELECT warehouse_id FROM orders WHERE id = $1), 'DISPATCHED', $2, $3, $4)
   ON CONFLICT (order_id) DO NOTHING
 `;
 
 /**
  * SPEC 04 Scope: "INSERT INTO shipments … ON CONFLICT (order_id) DO
- * NOTHING, status PENDING_DISPATCH, warehouse_id read from the order".
+ * NOTHING … warehouse_id read from the order".
  * `ON CONFLICT (order_id) DO NOTHING` is the idempotency: running this
- * twice for the same order inserts once and errors never (R3.4).
+ * twice for the same order inserts once and errors never (R3.4) — a
+ * pg-boss retry after a successful first insert simply discards its own
+ * freshly-generated carrier/tracking values instead of overwriting them.
+ *
+ * Deliberate deviation from specs/04-queue-worker-observability.md
+ * ("shipment lifecycle transitions beyond PENDING_DISPATCH... goes in its
+ * own spec"): requested for local QA/demo so a shipment is inspectable as
+ * dispatched immediately, without adding a delayed pg-boss job or any new
+ * queue. `status` starts at `DISPATCHED` with a random-but-carrier-shaped
+ * `carrier`/`tracking_number`/`dispatched_at` instead of `PENDING_DISPATCH`
+ * with nulls. `delivered_at` stays null — only dispatch is mocked.
  */
 @Injectable()
 export class ShipmentService {
   constructor(private readonly dataSource: DataSource) {}
 
   async createForOrder(orderId: string): Promise<void> {
-    await this.dataSource.query(INSERT_SHIPMENT_SQL, [orderId]);
+    const carrier = pickRandomCarrier();
+    const trackingNumber = generateTrackingNumber(carrier);
+
+    await this.dataSource.query(INSERT_SHIPMENT_SQL, [
+      orderId,
+      carrier,
+      trackingNumber,
+      new Date(),
+    ]);
   }
 }

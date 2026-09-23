@@ -91,10 +91,11 @@ describe('ShipmentCreateHandler (integration)', () => {
     expect(shipments).toHaveLength(1);
     expect(shipments[0]).toMatchObject({
       warehouseId,
-      status: 'PENDING_DISPATCH',
-      carrier: null,
-      trackingNumber: null,
+      status: 'DISPATCHED',
     });
+    expect(['UPS', 'FedEx', 'USPS', 'DHL']).toContain(shipments[0].carrier);
+    expect(shipments[0].trackingNumber).toEqual(expect.any(String));
+    expect(shipments[0].dispatchedAt).toBeInstanceOf(Date);
   });
 
   it('throws rather than writing a partial row for an order with no warehouse_id', async () => {

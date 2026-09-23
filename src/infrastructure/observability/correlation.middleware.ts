@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { trace } from '@opentelemetry/api';
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 
@@ -33,6 +34,9 @@ export class CorrelationMiddleware implements NestMiddleware {
       inbound && isValidCorrelationId(inbound) ? inbound : randomUUID();
 
     res.setHeader('X-Correlation-Id', correlationId);
+    // Tags the request's own span (from HttpInstrumentation) so Tempo can
+    // be searched by this id, same key job-runner.ts sets on each job span.
+    trace.getActiveSpan()?.setAttribute('app.correlation_id', correlationId);
     correlationStorage.run({ correlationId }, next);
   }
 }

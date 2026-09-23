@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
+import { withJobSpan } from './helpers/tracing.helper';
 import { JobHandler } from './job-handler';
 import {
   OrderSettlementService,
@@ -47,10 +48,16 @@ export class ReservationReaperHandler implements JobHandler<
   ) {}
 
   async handle(): Promise<void> {
-    const rows = await this.selectExpiredReservations();
+    const rows = await withJobSpan('select expired reservations', () =>
+      this.selectExpiredReservations(),
+    );
     for (const row of rows) {
       try {
-        await this.resolveReservation(row);
+        await withJobSpan(
+          'resolve reservation',
+          () => this.resolveReservation(row),
+          { 'app.order_id': row.id },
+        );
       } catch (error) {
         this.logger.warn({
           event: 'reservation reap failed',
