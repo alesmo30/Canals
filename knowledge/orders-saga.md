@@ -357,7 +357,8 @@ how `CreateOrderDto` coerces its fields.
 
 **Keyset pagination** (`GET /orders`):
 - The cursor is `base64("<createdAt ISO>|<id>")` (`encodeCursor`). Not JSON:
-  clients only echo it back, never parse it.
+  clients only echo it back, never parse it. `createdAt` carries
+  microseconds ([Cursor precision](#cursor-precision)).
 - A cursor this module did not produce raises `InvalidCursorError`;
   `decodeCursorOrThrow` rethrows it as `BadRequestException`, the same 400
   bucket as any invalid query parameter, with no new problem type.
@@ -394,3 +395,34 @@ cannot leak by accident. The detail projection deliberately leaves out
 `raw_response`.
 
 Source: [spec 06, Data model and Decisions](../specs/06-read-side.md#decisions).
+
+## Cursor precision
+
+Code:
+- `src/application/orders/helpers/cursor.helpers.ts` → `OrderCursor`, `encodeCursor`, `decodeCursor`
+- `src/infrastructure/database/repositories/orders-read.repository.ts` → `OrderPageRow`, `OrdersReadRepository.findPage`
+
+`created_at` is `timestamptz`, stored with microseconds; a JS `Date` holds
+only milliseconds. The cursor used to be built from `row.created_at`
+(`toISOString()`), so `…05.132167` became `…05.132`. The next page's
+`(created_at, id) < ('…05.132', id)` then excluded every remaining row at
+`…05.132167`, whatever its `id`, because that timestamp is *greater* than
+the truncated one. Rows were silently skipped, never duplicated.
+
+It showed on real data: `created_at` defaults to `now()`, which always has
+microseconds and is constant inside a transaction, so a batch insert
+produces many rows with the same instant. A page boundary inside such a
+group lost the rest of the group (found with 25 rows at one instant and
+`pageSize=100`: the walk returned 1667 of 1687 orders).
+
+Fix: `findPage` also selects `created_at` formatted by Postgres
+(`to_char(... AT TIME ZONE 'UTC', '…SS.US"Z"')`) as `cursor_created_at`.
+The cursor carries that string, never a `Date`, and the comparison casts it
+back with `::timestamptz`. `decodeCursor` still rejects an unparseable date
+but returns the string untouched. Millisecond cursors issued before the fix
+still decode and work. Changing the column to `timestamptz(3)` was rejected:
+a schema migration for a read-side concern.
+
+Regression test: `orders-read.repository.integration.spec.ts`, "does not
+skip rows when a page boundary splits a group sharing a sub-millisecond
+created_at".

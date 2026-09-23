@@ -5,18 +5,24 @@ import {
 } from './cursor.helpers';
 
 describe('cursor.helpers', () => {
-  it('round-trips encodeCursor -> decodeCursor', () => {
+  it('round-trips encodeCursor -> decodeCursor keeping microseconds', () => {
     const original = {
-      createdAt: new Date('2026-01-15T10:30:00.000Z'),
+      createdAt: '2026-01-15T10:30:00.123456Z',
       id: 'a1b2c3',
     };
 
-    const decoded = decodeCursor(encodeCursor(original));
+    expect(decodeCursor(encodeCursor(original))).toEqual(original);
+  });
 
-    expect(decoded.createdAt.toISOString()).toBe(
-      original.createdAt.toISOString(),
+  it('still accepts a millisecond cursor issued before the microsecond fix', () => {
+    const cursor = Buffer.from('2026-01-15T10:30:00.123Z|a1b2c3').toString(
+      'base64',
     );
-    expect(decoded.id).toBe(original.id);
+
+    expect(decodeCursor(cursor)).toEqual({
+      createdAt: '2026-01-15T10:30:00.123Z',
+      id: 'a1b2c3',
+    });
   });
 
   it('throws InvalidCursorError when the decoded value has no "|" separator', () => {

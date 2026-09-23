@@ -32,8 +32,13 @@ export interface OrdersPageFilters {
   warehouseId?: string;
   createdAtFrom?: Date;
   createdAtTo?: Date;
-  cursor?: { createdAt: Date; id: string };
+  cursor?: { createdAt: string; id: string };
   pageSize: number;
+}
+
+/** `cursor_created_at` keeps Postgres's microseconds, which `created_at: Date` loses. */
+export interface OrderPageRow extends OrderRow {
+  cursor_created_at: string;
 }
 
 export interface OrderDetailRow extends OrderRow {
@@ -63,6 +68,8 @@ export interface ShipmentRow {
 const ORDER_ROW_COLUMNS =
   'id, order_number, customer_id, warehouse_id, status, currency, total_cents, created_at';
 
+const CURSOR_CREATED_AT_COLUMN = `to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_created_at`;
+
 @Injectable()
 export class OrdersReadRepository {
   constructor(private readonly dataSource: DataSource) {}
@@ -72,7 +79,7 @@ export class OrdersReadRepository {
    * combinable). The cursor uses a row comparison so `created_at` ties
    * resolve by `id`. `LIMIT pageSize + 1` gives `hasMore` without COUNT(*).
    */
-  async findPage(filters: OrdersPageFilters): Promise<OrderRow[]> {
+  async findPage(filters: OrdersPageFilters): Promise<OrderPageRow[]> {
     const conditions: string[] = [];
     const params: unknown[] = [];
 
@@ -99,7 +106,7 @@ export class OrdersReadRepository {
     if (filters.cursor) {
       params.push(filters.cursor.createdAt, filters.cursor.id);
       conditions.push(
-        `(created_at, id) < ($${params.length - 1}, $${params.length})`,
+        `(created_at, id) < ($${params.length - 1}::timestamptz, $${params.length}::uuid)`,
       );
     }
 
@@ -108,8 +115,8 @@ export class OrdersReadRepository {
 
     params.push(filters.pageSize + 1);
 
-    const rows: OrderRow[] = await this.dataSource.query(
-      `SELECT ${ORDER_ROW_COLUMNS}
+    const rows: OrderPageRow[] = await this.dataSource.query(
+      `SELECT ${ORDER_ROW_COLUMNS}, ${CURSOR_CREATED_AT_COLUMN}
        FROM orders
        ${whereClause}
        ORDER BY created_at DESC, id DESC

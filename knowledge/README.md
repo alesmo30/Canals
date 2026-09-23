@@ -129,7 +129,9 @@ which is organised by test file.
 | `dlqRowCount` | `src/infrastructure/messaging/job-runner.integration.spec.ts` | [investigations.md#pgboss-queue-stats-throttle](investigations.md#pgboss-queue-stats-throttle) |
 | `DOCS_PATH_PREFIX` | `src/main.ts` | [architecture.md#http-hardening](architecture.md#http-hardening) |
 | `DomainEvent` | `src/domain/ports/event-publisher.ts` | [messaging-jobs.md#transactional-outbox](messaging-jobs.md#transactional-outbox) |
-| `encodeCursor` | `src/application/orders/helpers/cursor.helpers.ts` | [orders-saga.md#read-side](orders-saga.md#read-side) |
+| `encodeCursor` | `src/application/orders/helpers/cursor.helpers.ts` | [orders-saga.md#read-side](orders-saga.md#read-side), [orders-saga.md#cursor-precision](orders-saga.md#cursor-precision) |
+| `OrderCursor` | `src/application/orders/helpers/cursor.helpers.ts` | [orders-saga.md#cursor-precision](orders-saga.md#cursor-precision) |
+| `OrderPageRow` | `src/infrastructure/database/repositories/orders-read.repository.ts` | [orders-saga.md#cursor-precision](orders-saga.md#cursor-precision) |
 | `envSchema` | `src/infrastructure/config/env.schema.ts` | [architecture.md#configuration](architecture.md#configuration) |
 | `envSchema` | `src/infrastructure/config/env.schema.ts` | [observability.md#logging](observability.md#logging) |
 | `EVENT_PUBLISHER` | `src/domain/ports/event-publisher.ts` | [architecture.md#ports](architecture.md#ports) |

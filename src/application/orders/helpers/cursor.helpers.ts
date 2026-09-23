@@ -1,5 +1,10 @@
+/**
+ * `createdAt` is Postgres's microsecond ISO string, never a JS `Date`:
+ * `Date` truncates to milliseconds and the next page would skip rows.
+ * See knowledge/orders-saga.md#cursor-precision.
+ */
 export interface OrderCursor {
-  createdAt: Date;
+  createdAt: string;
   id: string;
 }
 
@@ -13,9 +18,7 @@ export class InvalidCursorError extends Error {
 
 /** base64("<createdAt ISO>|<id>"). Not JSON: clients only echo it back. */
 export function encodeCursor(params: OrderCursor): string {
-  return Buffer.from(`${params.createdAt.toISOString()}|${params.id}`).toString(
-    'base64',
-  );
+  return Buffer.from(`${params.createdAt}|${params.id}`).toString('base64');
 }
 
 export function decodeCursor(cursor: string): OrderCursor {
@@ -26,10 +29,9 @@ export function decodeCursor(cursor: string): OrderCursor {
     throw new InvalidCursorError(cursor);
   }
 
-  const [createdAtRaw, id] = parts;
-  const createdAt = new Date(createdAtRaw);
+  const [createdAt, id] = parts;
 
-  if (Number.isNaN(createdAt.getTime())) {
+  if (Number.isNaN(new Date(createdAt).getTime())) {
     throw new InvalidCursorError(cursor);
   }
 
