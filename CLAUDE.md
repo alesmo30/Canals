@@ -37,7 +37,7 @@ npm run migration:run           # apply migrations (needs DATABASE_URL etc. expo
 npm run seed                    # seed script (manual/local only — CI doesn't run this)
 npm run lint / build            # rm -rf dist first if a stale build is confusing lint's glob
 npm run test:unit               # no DB needed
-npm run test:integration        # needs a migrated Postgres reachable
+npm run test:integration        # needs a migrated Postgres reachable; runs serially (jest-integration.json maxWorkers:1) — specs share one real Postgres/pg-boss instance, parallel workers race each other's queue rows
 npm run concurrency-check       # -- 50 for N=50; default N=5, resets its own fixture each run
 npm run payments-check          # needs payments-mock reachable (docker compose up); ~7s, dominated by card 0004's timeout
 npm run events-check            # needs a worker reachable (docker compose up); publishes order.confirmed, waits for 3 jobs + 1 shipment
