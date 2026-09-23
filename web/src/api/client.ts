@@ -105,9 +105,9 @@ export async function execute(params: ExecuteParams): Promise<Execution> {
         body,
         error: null,
       },
-      orderId:
-        extractOrderId(request, body) ??
-        (params.kind === 'GET_ORDER' ? params.path.split('/').pop() ?? null : null),
+      // Only a response that proves the order exists (201/200 body, or a
+      // 502 problem carrying orderId) sets it — a 404'd id never does.
+      orderId: extractOrderId(request, body),
       correlationId:
         response.headers.get('x-correlation-id') ??
         (isProblem(body) ? body.correlationId ?? null : null),
