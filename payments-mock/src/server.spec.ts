@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto';
 
-import { FastifyInstance } from 'fastify';
-
 import { DelayFn } from './charge.service';
 import { buildServer } from './server';
 
@@ -19,7 +17,7 @@ function createDelaySpy(realWaitMs = 5): { delay: DelayFn; calls: number[] } {
   return { delay, calls };
 }
 
-function buildTestServer(delay: DelayFn): FastifyInstance {
+function buildTestServer(delay: DelayFn) {
   // card0004DelayMs / approvedDelay* are recorded verbatim by the delay
   // spy but never actually waited for real — the spy substitutes its own
   // short real wait, so these values stay distinguishable in assertions
