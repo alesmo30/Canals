@@ -6,11 +6,11 @@ import { encodeCursor } from './helpers/cursor.helpers';
 import { ListOrdersService } from './list-orders.service';
 import type {
   OrderItemRow,
-  OrderRow,
+  OrderPageRow,
   OrdersReadRepository,
 } from '../../infrastructure/database/repositories/orders-read.repository';
 
-function makeOrderRow(overrides: Partial<OrderRow> = {}): OrderRow {
+function makeOrderRow(overrides: Partial<OrderPageRow> = {}): OrderPageRow {
   return {
     id: randomUUID(),
     order_number: 'CNL-2026-000001',
@@ -20,11 +20,12 @@ function makeOrderRow(overrides: Partial<OrderRow> = {}): OrderRow {
     currency: 'USD',
     total_cents: '1000',
     created_at: new Date(),
+    cursor_created_at: '2026-01-15T10:30:00.123456Z',
     ...overrides,
   };
 }
 
-function makeFakeRepository(rows: OrderRow[], items: OrderItemRow[] = []) {
+function makeFakeRepository(rows: OrderPageRow[], items: OrderItemRow[] = []) {
   const findPage = jest.fn().mockResolvedValue(rows);
   const findItemsByOrderIds = jest.fn().mockResolvedValue(items);
   const repository = {
@@ -37,7 +38,11 @@ function makeFakeRepository(rows: OrderRow[], items: OrderItemRow[] = []) {
 
 describe('ListOrdersService', () => {
   it('a page of 3 rows with pageSize=2 returns 2 orders, hasMore=true, nextCursor from the 2nd row', async () => {
-    const rows = [makeOrderRow(), makeOrderRow(), makeOrderRow()];
+    const rows = [
+      makeOrderRow(),
+      makeOrderRow({ cursor_created_at: '2026-01-15T10:30:00.654321Z' }),
+      makeOrderRow(),
+    ];
     const { repository } = makeFakeRepository(rows);
     const service = new ListOrdersService(repository);
 
@@ -50,7 +55,10 @@ describe('ListOrdersService', () => {
     ]);
     expect(result.hasMore).toBe(true);
     expect(result.nextCursor).toBe(
-      encodeCursor({ createdAt: rows[1].created_at, id: rows[1].id }),
+      encodeCursor({
+        createdAt: '2026-01-15T10:30:00.654321Z',
+        id: rows[1].id,
+      }),
     );
   });
 

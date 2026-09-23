@@ -65,7 +65,7 @@ describe('OrdersReadRepository (integration)', () => {
     const expectedIds = new Set(savedOrders.map((order) => order.id));
 
     const seenIds = new Set<string>();
-    let cursor: { createdAt: Date; id: string } | undefined;
+    let cursor: { createdAt: string; id: string } | undefined;
     let pageCount = 0;
 
     for (;;) {
@@ -85,11 +85,63 @@ describe('OrdersReadRepository (integration)', () => {
       }
 
       const lastRow = pageRows[pageRows.length - 1];
-      cursor = { createdAt: lastRow.created_at, id: lastRow.id };
+      cursor = { createdAt: lastRow.cursor_created_at, id: lastRow.id };
     }
 
     expect(seenIds).toEqual(expectedIds);
     expect(pageCount).toBe(3); // 20 + 20 + 10
+  });
+
+  it('does not skip rows when a page boundary splits a group sharing a sub-millisecond created_at', async () => {
+    const tieCustomer = await AppDataSource.getRepository(
+      CustomerOrmEntity,
+    ).save({
+      email: `${randomUUID()}@example.com`,
+      fullName: 'Microsecond Tie Customer',
+    });
+    const savedOrders = [];
+    for (let index = 0; index < 25; index += 1) {
+      savedOrders.push(
+        await AppDataSource.getRepository(OrderOrmEntity).save({
+          ...orderPayload(index, new Date()),
+          customerId: tieCustomer.id,
+        }),
+      );
+    }
+    const expectedIds = savedOrders.map((order) => order.id);
+    // Same instant for all 25, like `now()` inside one transaction; a JS
+    // Date can't hold the microseconds, so set it in SQL.
+    await AppDataSource.query(
+      `UPDATE orders SET created_at = '2026-09-23T05:42:05.132167Z' WHERE id = ANY($1::uuid[])`,
+      [expectedIds],
+    );
+
+    const seenIds = new Set<string>();
+    let cursor: { createdAt: string; id: string } | undefined;
+
+    for (;;) {
+      const rows = await repo.findPage({
+        customerId: tieCustomer.id,
+        pageSize: 5,
+        cursor,
+      });
+
+      const hasMore = rows.length > 5;
+      const pageRows = hasMore ? rows.slice(0, 5) : rows;
+      for (const row of pageRows) {
+        expect(seenIds.has(row.id)).toBe(false);
+        seenIds.add(row.id);
+      }
+
+      if (!hasMore) {
+        break;
+      }
+      const lastRow = pageRows[pageRows.length - 1];
+      expect(lastRow.cursor_created_at).toBe('2026-09-23T05:42:05.132167Z');
+      cursor = { createdAt: lastRow.cursor_created_at, id: lastRow.id };
+    }
+
+    expect(seenIds).toEqual(new Set(expectedIds));
   });
 
   it('findItemsByOrderIds([]) does not explode', async () => {

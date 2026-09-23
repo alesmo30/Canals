@@ -4,6 +4,7 @@ import {
   decodeCursor,
   encodeCursor,
   InvalidCursorError,
+  OrderCursor,
 } from './helpers/cursor.helpers';
 import type { OrderStatus } from '../../domain/enum-types/order-status';
 import {
@@ -82,7 +83,10 @@ export class ListOrdersService {
     const lastRow = pageRows[pageRows.length - 1];
     const nextCursor =
       hasMore && lastRow
-        ? encodeCursor({ createdAt: lastRow.created_at, id: lastRow.id })
+        ? encodeCursor({
+            createdAt: lastRow.cursor_created_at,
+            id: lastRow.id,
+          })
         : null;
 
     return {
@@ -96,7 +100,7 @@ export class ListOrdersService {
   }
 
   /** An invalid cursor is a 400 like any invalid query param — rethrown as BadRequestException. */
-  private decodeCursorOrThrow(cursor: string): { createdAt: Date; id: string } {
+  private decodeCursorOrThrow(cursor: string): OrderCursor {
     try {
       return decodeCursor(cursor);
     } catch (error: unknown) {
