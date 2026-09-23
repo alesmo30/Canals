@@ -131,7 +131,7 @@ flowchart LR
 | Component | Responsibility | Never does |
 |---|---|---|
 | `api` | Serves HTTP, runs the order saga, publishes events inside the settling transaction. | Consume jobs, run migrations. |
-| `worker` | Consumes `shipment.create`, `customer.notify`, `analytics.record`; runs the reservation reaper and the payment reconciliation every minute. | Serve HTTP (it has no port). |
+| `worker` | Consumes `shipment.create`, `customer.notify`, `analytics.record`; runs the reservation reaper and the payment reconciliation every minute. Only `shipment.create` does real work (creates the shipment row); the other two are placeholders that just log. | Serve HTTP (it has no port). |
 | `migrate` / `seed` | Apply migrations, then load the mocked demo data, and exit. | Run again once done; api and worker wait for them. |
 | `payments-mock` | Fake provider keyed on the card's last four digits; honors the provider idempotency key. | Persist charges (memory only). |
 | `postgres` | The single source of truth, including the job queue. | Share state with any other datastore. |
@@ -310,4 +310,5 @@ Deliberately left out of scope or not fixed yet, each for a reason:
 - **`RESERVATION_TTL_MINUTES` is validated but unused**: the reservation window comes from the code constant.
 - **`verify-ledger.sql` compares snapshots**, not a full replay from zero.
 - **No compose healthcheck on `api`**, and the concurrency e2e proof runs against a single api instance.
+- **Only the `shipment.create` queue is functional.** `customer.notify` and `analytics.record` are placeholders: their handlers only write a structured log line, with no email provider or analytics sink behind them. They exist to show the fan-out, retries and DLQ wiring.
 - **Not built:** management APIs for customers, products and warehouses, authentication, bulk orders, order edits and deployment.
