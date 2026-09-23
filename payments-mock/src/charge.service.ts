@@ -10,6 +10,7 @@ import {
   CARD_TIMEOUT_LAST4,
 } from './constants';
 import { computeRequestHash } from './hash';
+import { logger } from './logger';
 import { ChargeRecord, ChargeRequestBody } from './types';
 
 export type DelayFn = (ms: number) => Promise<void>;
@@ -77,15 +78,26 @@ export class ChargeService {
   ): Promise<ChargeResult> {
     const last4 = cardLast4(body.cardNumber);
     const hash = computeRequestHash({ last4, ...body });
+    logger.info(
+      {
+        idempotencyKey,
+        last4,
+        amountCents: body.amountCents,
+        currency: body.currency,
+      },
+      'charge.received',
+    );
 
     // A second request for this key, arriving while the first is still
     // being processed, awaits that same result instead of starting its own.
     const alreadyPending = this.pending.get(idempotencyKey);
     if (alreadyPending) {
       const outcome = await alreadyPending.promise;
-      return alreadyPending.requestHash === hash
-        ? outcome
-        : IDEMPOTENCY_KEY_REUSED;
+      if (alreadyPending.requestHash !== hash) {
+        logger.warn({ idempotencyKey }, 'charge.idempotency_key_reused');
+        return IDEMPOTENCY_KEY_REUSED;
+      }
+      return outcome;
     }
 
     const promise = this.process({ idempotencyKey, hash, last4, body });
@@ -98,7 +110,7 @@ export class ChargeService {
   }
 
   private async process(attempt: ChargeAttempt): Promise<ChargeResult> {
-    const { idempotencyKey, hash, last4, body } = attempt;
+    const { idempotencyKey, hash, last4 } = attempt;
 
     if (last4 === CARD_TIMEOUT_LAST4) {
       return this.processCard0004(attempt);
@@ -109,29 +121,42 @@ export class ChargeService {
     const existing = this.records.get(idempotencyKey);
     if (existing) {
       if (existing.requestHash !== hash) {
+        logger.warn({ idempotencyKey }, 'charge.idempotency_key_reused');
         return IDEMPOTENCY_KEY_REUSED;
       }
+      logger.info(
+        { idempotencyKey, last4, status: existing.status },
+        'charge.replayed',
+      );
       return { kind: 'charged', record: existing };
     }
 
     if (last4 === CARD_PROVIDER_ERROR_LAST4) {
+      logger.warn(
+        { idempotencyKey, last4, status: 'provider_error' },
+        'charge.completed',
+      );
       return { kind: 'provider_error' };
     }
 
     if (last4 === CARD_DECLINED_LAST4) {
-      return {
-        kind: 'charged',
-        record: this.store(attempt, 'declined'),
-      };
+      const record = this.store(attempt, 'declined');
+      logger.info(
+        { idempotencyKey, last4, status: record.status },
+        'charge.completed',
+      );
+      return { kind: 'charged', record };
     }
 
     await this.delay(
       randomBetween(this.approvedDelayMinMs, this.approvedDelayMaxMs),
     );
-    return {
-      kind: 'charged',
-      record: this.store(attempt, 'approved'),
-    };
+    const record = this.store(attempt, 'approved');
+    logger.info(
+      { idempotencyKey, last4, status: record.status },
+      'charge.completed',
+    );
+    return { kind: 'charged', record };
   }
 
   /**
@@ -140,13 +165,18 @@ export class ChargeService {
    * the delay. See knowledge/http-payments.md#card-0004
    */
   private async processCard0004(attempt: ChargeAttempt): Promise<ChargeResult> {
-    const { idempotencyKey, hash } = attempt;
-    const record =
-      this.records.get(idempotencyKey) ?? this.store(attempt, 'approved');
+    const { idempotencyKey, hash, last4 } = attempt;
+    const existing = this.records.get(idempotencyKey);
+    const record = existing ?? this.store(attempt, 'approved');
     await this.delay(this.card0004DelayMs);
     if (record.requestHash !== hash) {
+      logger.warn({ idempotencyKey }, 'charge.idempotency_key_reused');
       return IDEMPOTENCY_KEY_REUSED;
     }
+    logger.info(
+      { idempotencyKey, last4, status: record.status },
+      existing ? 'charge.replayed' : 'charge.completed',
+    );
     return { kind: 'charged', record };
   }
 

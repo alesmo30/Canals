@@ -1,14 +1,11 @@
-import Fastify, {
-  FastifyError,
-  FastifyInstance,
-  FastifySchema,
-} from 'fastify';
+import Fastify, { FastifyError, FastifySchema } from 'fastify';
 
 import {
   ChargeService,
   ChargeServiceOptions,
   IDEMPOTENCY_KEY_REUSED,
 } from './charge.service';
+import { logger } from './logger';
 import {
   ChargeRequestBody,
   toChargeResponse,
@@ -41,8 +38,8 @@ const chargeSchema: FastifySchema = {
  * App builder: tests build a fresh instance per test with injectable delays
  * (`fastify.inject()`, no socket); `main.ts` builds the one that listens.
  */
-export function buildServer(options?: ChargeServiceOptions): FastifyInstance {
-  const app = Fastify({ logger: false });
+export function buildServer(options?: ChargeServiceOptions) {
+  const app = Fastify({ loggerInstance: logger });
   const chargeService = new ChargeService(options);
 
   app.setErrorHandler((error: FastifyError, _request, reply) => {
@@ -53,15 +50,14 @@ export function buildServer(options?: ChargeServiceOptions): FastifyInstance {
     reply.send(error);
   });
 
-  app.get('/health', () => ({ status: 'ok' }));
+  // Skips the access log so Docker's health-check polling doesn't drown out charge traffic.
+  app.get('/health', { logLevel: 'silent' }, () => ({ status: 'ok' }));
 
   app.post<{ Body: ChargeRequestBody }>(
     '/charge',
     { schema: chargeSchema },
     async (request, reply) => {
-      const idempotencyKey = request.headers[
-        IDEMPOTENCY_KEY_HEADER
-      ] as string;
+      const idempotencyKey = request.headers[IDEMPOTENCY_KEY_HEADER] as string;
 
       const result = await chargeService.charge(idempotencyKey, request.body);
 
@@ -84,6 +80,10 @@ export function buildServer(options?: ChargeServiceOptions): FastifyInstance {
     async (request, reply) => {
       const record = chargeService.getByIdempotencyKey(
         request.params.idempotencyKey,
+      );
+      logger.info(
+        { idempotencyKey: request.params.idempotencyKey, found: !!record },
+        'charge.lookup',
       );
       if (!record) {
         await reply.code(404).send({ error: 'not_found' });
