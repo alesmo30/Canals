@@ -70,6 +70,8 @@ services:
       DATABASE_URL: postgres://canals:canals@postgres:5432/canals
       PAYMENTS_URL: http://payments-mock:4000
       OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+      # SPEC 08: the console (web/, Vite on 5173) calls the api from the browser.
+      CORS_ORIGINS: http://localhost:3000,http://localhost:5173
       # Switching to Geoapify is two lines in a git-ignored .env:
       # GEOCODING_DRIVER=geoapify
       # GEOAPIFY_API_KEY=<your key>
