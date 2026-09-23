@@ -15,10 +15,10 @@ import {
   registerDecorator,
 } from 'class-validator';
 
-/** FR-1: the only market this saga supports — see specs/05-order-creation-saga.md, Decisions. */
+/** The only supported market. */
 const SUPPORTED_COUNTRY = 'US';
 
-/** Only shape, 13-19 digits — the mock decides the real outcome by the exact value (specs/05, Decisions). */
+/** Shape only (13–19 digits); the provider decides the outcome. */
 const CARD_NUMBER_PATTERN = /^\d{13,19}$/;
 
 export class ShippingAddressDto {
@@ -48,14 +48,8 @@ export class ShippingAddressDto {
 }
 
 export class OrderLineDto {
-  // 'loose': accepts any 8-4-4-4-12 hex-dash shape, not just RFC4122's
-  // version/variant nibbles. Real ids are gen_random_uuid() (always
-  // valid v4), but this codebase's own fixed test/seed ids
-  // (seed.ts's a0000000-.../b0000000-..., concurrency-check.ts's
-  // d0000000-..., events-check.ts's e0000000-...) are deliberately
-  // readable, sequential, non-v4 "uuid-shaped" strings — 'all' (the
-  // default) rejects them outright, which would make POST /orders
-  // impossible to exercise against npm run seed's own data.
+  // 'loose': any 8-4-4-4-12 hex shape. The seed/test fixture ids are
+  // readable non-v4 strings that the default 'all' would reject.
   @IsUUID('loose')
   productId!: string;
 
@@ -87,7 +81,7 @@ class UniqueProductIdsConstraint implements ValidatorConstraintInterface {
   }
 }
 
-/** `items[]` must not repeat a `productId` — rejected outright, never merged (specs/05, Decisions). */
+/** `items[]` must not repeat a `productId` — rejected, never merged. */
 function UniqueProductIds(validationOptions?: ValidationOptions) {
   return function (object: object, propertyName: string): void {
     registerDecorator({

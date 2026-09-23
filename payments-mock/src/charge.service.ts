@@ -45,11 +45,9 @@ interface ChargeAttempt {
 }
 
 /**
- * SPEC 03: the mock's whole state machine — an in-memory `Map` of stored
- * charges, a second `Map` of in-flight promises for "a second request with
- * the same key awaits the first one's result", and the card-keyed outcome
- * table. One instance per process; state is lost on restart, accepted as a
- * mock limitation (spec's Risks).
+ * In-memory store of charges plus a map of in-flight promises (a second
+ * request with the same key awaits the first). One instance per process;
+ * state is lost on restart — accepted for a mock.
  */
 export class ChargeService {
   private readonly records = new Map<string, ChargeRecord>();
@@ -106,9 +104,8 @@ export class ChargeService {
       return this.processCard0004(attempt);
     }
 
-    // Every other card replays its stored response for a repeated key —
-    // instantly, no re-delay, no reprocessing. A different body under the
-    // same key is a reuse, not a replay.
+    // Other cards replay the stored response instantly for a repeated key.
+    // A different body under the same key is a reuse (422), not a replay.
     const existing = this.records.get(idempotencyKey);
     if (existing) {
       if (existing.requestHash !== hash) {
@@ -138,15 +135,9 @@ export class ChargeService {
   }
 
   /**
-   * `0004`: the delay is checked before the idempotency lookup. The charge
-   * is recorded as approved the moment it arrives — before the delay —
-   * so a concurrent `GET` already sees it while this `POST` is still
-   * pending. The delay then runs unconditionally, on every request for
-   * this key, replays included: the normal "already stored, replay
-   * instantly" shortcut above never applies to this card. Only once the
-   * delay is over does it check whether this request's body still matches
-   * what was recorded — a same-key-different-body request against `0004`
-   * still ends in `422`, just after paying the delay first.
+   * Card 0004: recorded as approved on arrival, then delays on every
+   * request (replays included); the body-mismatch check runs only after
+   * the delay. See knowledge/http-payments.md#card-0004
    */
   private async processCard0004(attempt: ChargeAttempt): Promise<ChargeResult> {
     const { idempotencyKey, hash } = attempt;

@@ -1,14 +1,8 @@
 import { ValueTransformer } from 'typeorm';
 
 /**
- * Postgres `bigint` columns come back from `pg` as JS strings by default —
- * a real bigint can exceed `Number.MAX_SAFE_INTEGER`. Every money column
- * here stores cents for an Apple-reseller order, nowhere near that
- * ceiling, so converting to a real `number` matches the domain's own
- * `Money` value object (src/domain/value-objects/money.ts), which is
- * built on `number`, not `bigint` or `string`. Applied only to money
- * columns — `inventory_movements.id` stays a plain bigint/string, it is
- * not a quantity the domain does arithmetic on.
+ * pg returns bigint as a string. Money columns (cents) sit far below
+ * MAX_SAFE_INTEGER, so convert to number to match Money. Money columns only.
  */
 export const bigintNumberTransformer: ValueTransformer = {
   to: (value?: number) => value,

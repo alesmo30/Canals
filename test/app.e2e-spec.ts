@@ -4,12 +4,6 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { ApiModule } from './../src/modules/api.module';
 
-/**
- * Requires DATABASE_URL (+ PAYMENTS_URL, OTEL_EXPORTER_OTLP_ENDPOINT) and a
- * migrated Postgres reachable — ApiModule pulls in SharedModule's real
- * TypeOrmModule connection. Same prerequisites as the integration tests
- * under src/infrastructure/database/.
- */
 describe('ApiModule (e2e)', () => {
   let app: INestApplication<App>;
 

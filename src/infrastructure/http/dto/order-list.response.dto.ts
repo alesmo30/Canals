@@ -26,11 +26,7 @@ export interface OrderListResponse {
   hasMore: boolean;
 }
 
-/**
- * specs/06-read-side.md, R5.5 — an explicit field-by-field projection,
- * never a spread of `OrderRow`/`OrderItemRow`, so a column added to
- * `orders`/`order_items` later cannot leak into the response by accident.
- */
+/** Explicit field-by-field projection, never a spread, so new columns can't leak into the response. */
 export function toOrderListItem(
   order: OrderRow,
   items: OrderItemRow[],

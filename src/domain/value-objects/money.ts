@@ -1,13 +1,6 @@
 /**
- * R0.5 (frozen contract): money as integer cents plus a currency code. No
- * floating-point money anywhere — every amount in this domain is a whole
- * number of cents, matching the `bigint` money columns in the schema.
- *
- * Amounts are kept as a JS `number`, not `bigint`. This system deals in USD
- * order totals for a retail catalogue — nowhere near
- * `Number.MAX_SAFE_INTEGER` cents (~$90 trillion) — so integer `number`
- * arithmetic is exact and avoids bigint's ergonomics (no native JSON
- * support, different operators) for no real safety gain at this scale.
+ * Integer cents + currency; never floats. A plain number (not bigint) stays
+ * exact far beyond any realistic order total.
  */
 export class Money {
   private constructor(

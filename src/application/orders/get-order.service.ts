@@ -18,17 +18,9 @@ export interface GetOrderResult {
 }
 
 /**
- * specs/06-read-side.md, step 8/Decisions — a `:id` with no UUID shape is
- * treated exactly like a well-formed but non-existent id: both throw
- * `OrderNotFoundError`, without a second `400` branch and without
- * reaching the database for a malformed id. `'loose'` — same reasoning as
- * CreateOrderDto's `productId`/`customerId` (this codebase's own fixed
- * test/seed ids are readable, non-v4 "uuid-shaped" strings).
- *
- * Items come from `findItemsByOrderIds` (step 4) — the response's
- * `items` field (Decisions, DTOs de respuesta) has no other source, so
- * this joins step 4's query to the three from step 7, still all
- * independent and run together.
+ * A non-UUID :id behaves like an unknown id (OrderNotFoundError, no DB
+ * call). 'loose' UUID check because fixture ids aren't v4. All queries run
+ * in parallel.
  */
 @Injectable()
 export class GetOrderService {

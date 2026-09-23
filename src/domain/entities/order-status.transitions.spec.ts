@@ -45,11 +45,8 @@ describe('order status transitions', () => {
       }
     });
 
-    // The exact ambiguity resolved in order-status.transitions.ts's own
-    // comment: architectural-requirements.md's diagram draws an arrow from
-    // PAYMENT_FAILED to CANCELLED, but three other passages of the same
-    // document treat PAYMENT_FAILED as terminal. This is the transition
-    // that decision rules out.
+    // The diagram's PAYMENT_FAILED → CANCELLED arrow is ruled out (see
+    // ORDER_TRANSITIONS).
     it('rejects PAYMENT_FAILED -> CANCELLED specifically', () => {
       expect(canTransitionOrderStatus('PAYMENT_FAILED', 'CANCELLED')).toBe(
         false,

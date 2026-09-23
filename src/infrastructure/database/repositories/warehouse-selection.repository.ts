@@ -7,11 +7,7 @@ import { DataSource } from 'typeorm';
 import { Coordinates } from '../../../domain/value-objects/coordinates';
 import { OrderLine } from '../../../application/allocation/allocation.types';
 
-/**
- * One row per candidate warehouse, as select-warehouse.sql returns it.
- * Nothing else (specs/02-fulfilment-core.md, Scope) — no domain service
- * re-checks what the query already guarantees.
- */
+/** One row per candidate, as select-warehouse.sql returns it; nothing re-checks what the query guarantees. */
 export interface WarehouseCandidate {
   warehouseId: string;
   name: string;
@@ -24,19 +20,15 @@ interface WarehouseCandidateRow {
   distance_meters: string | number;
 }
 
-// Loaded once at module init, not per call — the statement text never
-// changes per order size (R1.1), so there is nothing to rebuild.
+// Loaded once at module init; the statement never changes per order.
 const SELECT_WAREHOUSE_SQL = readFileSync(
   join(__dirname, '../sql/select-warehouse.sql'),
   'utf-8',
 );
 
 /**
- * Executes select-warehouse.sql — the whole of FR-2's warehouse-selection
- * rule lives in that statement (specs/02-fulfilment-core.md, Decisions:
- * "no domain service for warehouse selection"). This class only loads the
- * file, binds the three parameters and maps rows; it does not re-rank or
- * re-filter anything the SQL already decided.
+ * The whole warehouse-selection rule lives in select-warehouse.sql; this
+ * class only loads it, binds parameters and maps rows.
  */
 @Injectable()
 export class WarehouseSelectionRepository {

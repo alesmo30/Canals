@@ -8,16 +8,9 @@ import type {
 import { redact } from '../http/redaction';
 
 /**
- * SPEC 07 Fix A: `formatters.log`/`hooks.logMethod` (`pino.config.ts`) cover
- * every log line, but spans have no redaction at all — `job-runner.ts`'s
- * `span.recordException(error)` stores the raw exception message and stack
- * as event attributes, and an auto-instrumented span (`HttpInstrumentation`,
- * `PgInstrumentation`) can carry a PAN or a secret in an attribute too.
- * Wrapping the exporter is one choke point for every span and event
- * attribute, including ones this codebase never explicitly sets.
- *
- * A span's status `message` is not an attribute — it is not covered here;
- * `job-runner.ts` redacts it itself before calling `span.setStatus()`.
+ * Redacts every span and event attribute at export, including
+ * auto-instrumented ones and recordException's message/stack. Span status
+ * messages aren't attributes — job-runner redacts those itself.
  */
 export class RedactingSpanExporter implements SpanExporter {
   constructor(private readonly inner: SpanExporter) {}
@@ -39,12 +32,8 @@ export class RedactingSpanExporter implements SpanExporter {
 }
 
 /**
- * `ReadableSpan.spanContext` (and any other method the concrete span class
- * defines) lives on the prototype, not as an own property — a plain object
- * spread would drop it, and the OTLP serializer calls `spanContext()` on
- * every span it exports. `Object.create` preserves the prototype chain;
- * `Object.assign` then copies the own properties over it, and `attributes`/
- * `events` are overwritten with their redacted versions.
+ * Object.create keeps the prototype: spanContext() lives there, a plain
+ * spread would drop it, and the OTLP serializer calls it on every span.
  */
 function redactSpan(span: ReadableSpan): ReadableSpan {
   const clone: ReadableSpan = Object.assign(

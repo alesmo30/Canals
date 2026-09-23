@@ -10,21 +10,16 @@ import { PgBossEventPublisher } from '../src/infrastructure/messaging/pg-boss-ev
 import { setupQueues } from '../src/infrastructure/messaging/queue-setup';
 
 /**
- * specs/04-queue-worker-observability.md step 11 — the phase's own
- * "small driver script" (SPEC 03's `payments-check.ts` precedent):
- * publishes `order.confirmed` for a fixture order against the real queues
- * and proves the whole HTTP-shaped path end to end without a browser —
- * `npm run verify`'s replacement for eyeballing Grafana. Deliberately does
- * *not* start a `JobRunner`: a real worker (compose, or whatever process
- * is running `test:integration`'s migrations against) must already be
- * consuming, so a stopped worker is exactly what turns this red.
+ * Publishes `order.confirmed` for a fixture order and waits for the three
+ * jobs and the shipment. Does not start a `JobRunner`: a real worker must
+ * be consuming, so a stopped worker turns this red.
+ * See knowledge/scripts.md#events-check
  */
 const TIMEOUT_MS = 45_000;
 const POLL_INTERVAL_MS = 1_000;
 
-// Fixed ids: idempotent upsert of the same customer/warehouse fixture
-// every run, distinct from concurrency-check.ts's own harness (d0...) so
-// the two scripts never contend on the same rows.
+// Fixed ids, idempotent upsert each run; distinct from the other harness
+// scripts' fixtures.
 const HARNESS_CUSTOMER_ID = 'e0000000-0000-0000-0000-000000000001';
 const HARNESS_WAREHOUSE_ID = 'e0000000-0000-0000-0000-000000000002';
 
@@ -43,10 +38,8 @@ async function seedFixtureOrder(dataSource: DataSource): Promise<string> {
     [HARNESS_WAREHOUSE_ID],
   );
 
-  // A fresh order every run (order_number is UNIQUE) — ShipmentService
-  // reads `warehouse_id` straight off this row (shipment.service.ts), so
-  // it must be set here for shipment.create to succeed rather than
-  // dead-letter.
+  // A fresh order each run (order_number is UNIQUE). warehouse_id must be
+  // set or shipment.create dead-letters.
   const orderId = randomUUID();
   await dataSource.query(
     `INSERT INTO orders
@@ -116,9 +109,8 @@ async function main(): Promise<void> {
   });
   await dataSource.initialize();
 
-  // supervise/schedule: false — this script only publishes and reads, the
-  // real worker (whoever is running) owns maintenance and consumption
-  // (pg-boss.provider.ts's own role split).
+  // supervise/schedule off: the running worker owns maintenance and
+  // consumption.
   const boss = new PgBoss({
     connectionString: config.DATABASE_URL,
     max: 2,

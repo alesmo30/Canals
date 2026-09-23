@@ -2,7 +2,7 @@ import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
 import type { ShipmentStatus } from '../../../domain/enum-types/shipment-status';
 
-/** Runtime mirror of the `shipment_status` enum (migration, step 7) — TypeORM's `enum` column option needs an actual array, not just a type. */
+/** Runtime mirror of shipment_status (TypeORM's `enum` option needs an array). */
 const SHIPMENT_STATUS_VALUES: readonly ShipmentStatus[] = [
   'PENDING_DISPATCH',
   'DISPATCHED',
@@ -11,11 +11,7 @@ const SHIPMENT_STATUS_VALUES: readonly ShipmentStatus[] = [
   'CANCELLED',
 ];
 
-/**
- * Mirrors `shipments` (migration, step 8). No domain mirror (R0.5): its
- * only rule is the `UNIQUE(order_id)` constraint in the migration, which
- * is what makes the worker's handler idempotent, not in-memory logic.
- */
+/** No domain class: UNIQUE(order_id) is what makes the shipment handler idempotent. */
 @Entity('shipments')
 export class ShipmentOrmEntity {
   @PrimaryGeneratedColumn('uuid')

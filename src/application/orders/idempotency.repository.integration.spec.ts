@@ -5,11 +5,6 @@ import { QueryFailedError } from 'typeorm';
 import { findActiveByKey, insertInProgress } from './idempotency.repository';
 import { AppDataSource } from '../../infrastructure/database/data-source';
 
-/**
- * Integration test — DATABASE_URL (+ PAYMENTS_URL,
- * OTEL_EXPORTER_OTLP_ENDPOINT) exported, a migrated Postgres reachable.
- * Each test uses its own randomUUID()-scoped idempotency key.
- */
 describe('idempotency.repository (integration)', () => {
   beforeAll(async () => {
     await AppDataSource.initialize();

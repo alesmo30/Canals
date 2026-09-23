@@ -4,13 +4,8 @@ export interface CityCentre {
 }
 
 /**
- * SPEC 03: ~30 entries, keyed by normalised `city|STATE` (city lower-cased
- * via `normalizeText`, state the two-letter USPS code). Includes the five
- * warehouse cities — coordinates match `seed.ts`'s `WAREHOUSES`, so "a
- * static result for a New York address returns Newark first" holds
- * against the seeded data — plus `portland|OR` and `portland|ME`
- * deliberately, to exercise the ambiguity rule (no state -> more than one
- * match -> `UNKNOWN_ADDRESS`).
+ * Keyed by normalised `city|STATE`. Includes the warehouse cities (matching
+ * seed.ts) and both Portlands to exercise the ambiguity rule.
  */
 export const US_CITIES: Readonly<Record<string, CityCentre>> = {
   // Warehouse cities (data-model.dbml / seed.ts — exact match).
@@ -20,7 +15,6 @@ export const US_CITIES: Readonly<Record<string, CityCentre>> = {
   'chicago|IL': { latitude: 41.878113, longitude: -87.629799 },
   'miami|FL': { latitude: 25.761681, longitude: -80.191788 },
 
-  // Required by SPEC 03's "Geocoding" scope bullet.
   'new york|NY': { latitude: 40.7128, longitude: -74.006 },
   'philadelphia|PA': { latitude: 39.9526, longitude: -75.1652 },
   'san diego|CA': { latitude: 32.7157, longitude: -117.1611 },

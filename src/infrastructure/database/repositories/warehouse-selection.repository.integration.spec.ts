@@ -7,14 +7,6 @@ import { ProductOrmEntity } from '../entities/product.orm-entity';
 import { WarehouseOrmEntity } from '../entities/warehouse.orm-entity';
 import { Coordinates } from '../../../domain/value-objects/coordinates';
 
-/**
- * Integration test — same prerequisites as order.mapper.integration.spec.ts:
- * DATABASE_URL (+ PAYMENTS_URL, OTEL_EXPORTER_OTLP_ENDPOINT) exported, a
- * migrated Postgres reachable. Deliberately builds its own products,
- * warehouses and inventory rows per test (randomUUID-scoped) rather than
- * depending on seed.ts — CI's integration job (tests.yml) runs migrations
- * but not the seed, and this suite must pass there unmodified.
- */
 describe('WarehouseSelectionRepository (integration)', () => {
   let repo: WarehouseSelectionRepository;
 
@@ -100,8 +92,8 @@ describe('WarehouseSelectionRepository (integration)', () => {
     const product = await makeProduct();
     const whA = await makeWarehouse(40.7128, -74.006);
     const whB = await makeWarehouse(34.0522, -118.2437);
-    // 2 units each — 4 combined would cover a request for 3, but C-6
-    // forbids splitting an order across warehouses.
+    // 2 units each — 4 combined would cover a request for 3, but an order
+    // is never split across warehouses.
     await setStock(whA.id, product.id, 2);
     await setStock(whB.id, product.id, 2);
 

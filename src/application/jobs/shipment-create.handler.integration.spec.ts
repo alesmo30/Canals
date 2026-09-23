@@ -8,12 +8,6 @@ import { OrderOrmEntity } from '../../infrastructure/database/entities/order.orm
 import { ShipmentOrmEntity } from '../../infrastructure/database/entities/shipment.orm-entity';
 import { WarehouseOrmEntity } from '../../infrastructure/database/entities/warehouse.orm-entity';
 
-/**
- * SPEC 04 step 5 — requires DATABASE_URL (+ PAYMENTS_URL,
- * OTEL_EXPORTER_OTLP_ENDPOINT for env.schema.ts's validation) exported and
- * a migrated Postgres reachable, same prerequisites as every other
- * `*.integration.spec.ts` in this repo.
- */
 describe('ShipmentCreateHandler (integration)', () => {
   let handler: ShipmentCreateHandler;
   let customerId: string;

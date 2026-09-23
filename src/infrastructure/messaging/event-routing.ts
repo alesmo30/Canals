@@ -1,9 +1,6 @@
 /**
- * SPEC 04 Data model, "Event contract" — the only event P3 defines. P4
- * publishes it; P3 routes and consumes it. Deliberately minimal: handlers
- * read whatever else they need from the database, so a job running a
- * minute late sees current state rather than a stale copy (Decisions,
- * "The event contract").
+ * Deliberately minimal: handlers read current state from the DB, so a late
+ * job never acts on a stale copy.
  */
 export interface OrderConfirmedPayload {
   readonly orderId: string;
@@ -11,10 +8,8 @@ export interface OrderConfirmedPayload {
 }
 
 /**
- * SPEC 04 Decisions, "Queue topology and fan-out": routing lives in code, not
- * in pg-boss's own `publish`/`subscribe` table (see that section for why —
- * a `subscribe()` never called by a fresh worker would enqueue nothing and
- * report success, exactly the silent-drop FR-9 exists to prevent).
+ * Routing lives in code, not in pg-boss publish/subscribe: a missing
+ * subscribe() would silently drop events.
  */
 export const EVENT_ROUTING: Readonly<Record<string, readonly string[]>> = {
   'order.confirmed': ['shipment.create', 'customer.notify', 'analytics.record'],

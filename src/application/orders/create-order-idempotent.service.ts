@@ -66,11 +66,8 @@ interface ReplayedRequest {
 }
 
 /**
- * specs/05-order-creation-saga.md — the `Idempotency-Key` dance (FR-6)
- * around `CreateOrderUseCase`'s saga. The use case itself knows nothing
- * about request-level idempotency, only about orders, payments and
- * inventory — this service is the only thing that does, so
- * `orders.controller.ts` stays a thin HTTP adapter.
+ * Wraps the saga with Idempotency-Key handling, so the use case knows
+ * nothing about request idempotency and the controller stays thin.
  */
 @Injectable()
 export class CreateOrderIdempotentService {
@@ -103,7 +100,7 @@ export class CreateOrderIdempotentService {
     });
   }
 
-  /** Missing header -> `400`; malformed -> `400` (FR-1's `Idempotency-Key (UUID, requerida)`). */
+  /** Missing or malformed header -> 400. */
   private assertValidIdempotencyKey(
     idempotencyKey: string | undefined,
   ): string {
@@ -117,10 +114,9 @@ export class CreateOrderIdempotentService {
   }
 
   /**
-   * Inserts the row under its unique constraint (FR-6: before any other
-   * work begins). On conflict, resolves the exact outcome — replay
-   * verbatim, `409` still running, or `422` a changed body — by looking
-   * up the row that's actually blocking the insert.
+   * Inserts the row first, under its unique constraint. On conflict,
+   * resolves replay / 409 in progress / 422 changed body from the row that
+   * blocks the insert.
    */
   private async beginIdempotentRequest(
     idempotencyKey: string,
@@ -137,9 +133,8 @@ export class CreateOrderIdempotentService {
         throw error;
       }
 
-      // The row is what's actually blocking the insert, regardless of
-      // whether findActiveByKey still considers it active (specs/05,
-      // Risks — an expired-but-unreaped row's fate is P6's to decide).
+      // Use the row that actually blocks the insert, even if findActiveByKey
+      // would treat it as expired.
       const existing = await findActiveByKey(this.dataSource, idempotencyKey);
       if (!existing) {
         throw error;
@@ -155,8 +150,8 @@ export class CreateOrderIdempotentService {
         );
       }
 
-      // COMPLETED: replay the stored response verbatim (FR-6) — never a
-      // second order, never a second charge.
+      // COMPLETED: replay the stored response verbatim — never a second
+      // order, never a second charge.
       return {
         outcome: 'REPLAY',
         status: existing.responseStatus ?? HttpStatus.OK,
@@ -166,11 +161,8 @@ export class CreateOrderIdempotentService {
   }
 
   /**
-   * Runs the saga and marks `idempotency_keys` `COMPLETED` for whichever
-   * final outcome it reaches — success or one of the typed errors alike
-   * (specs/05, Decisions) — reusing `problem-details.filter.ts`'s
-   * `buildProblem()` so the stored body matches exactly what the global
-   * filter will send the client on error.
+   * Marks the key COMPLETED for any final outcome (success or typed error),
+   * reusing buildProblem() so the stored body matches what the filter sends.
    */
   private async runAndRecord(
     idempotencyKeyId: string,
@@ -219,10 +211,8 @@ export class CreateOrderIdempotentService {
         ...(problem.orderId ? { orderId: problem.orderId } : {}),
       };
 
-      // SPEC 07 Fix C: both a 402 and a 502 are only ever thrown after the
-      // order row exists, so idempotency_keys.order_id records it for
-      // both — a replay can then point the client at the order even
-      // though only the 502 body itself carries `orderId`.
+      // 402 and 502 are thrown only after the order row exists, so order_id
+      // is recorded for both and a replay can point to the order.
       const orderId =
         error instanceof PaymentDeclinedError ||
         error instanceof PaymentProviderUnavailableError

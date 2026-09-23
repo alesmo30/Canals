@@ -5,12 +5,9 @@ import {
 import { HttpPaymentGateway } from '../src/infrastructure/payments/http-payment-gateway';
 
 /**
- * SPEC 03 step 10 — the phase's "small driver script" until P4 exposes
- * `curl` on the api itself. Runs the four deterministic test cards
- * (README, step 15) through `HttpPaymentGateway` against the running
- * `payments-mock`, using the adapter's own default timeout/retry
- * constants — not sped up, so this genuinely takes the ~6.6 s worst case
- * for card `0004` alone (about 7 s total for all four).
+ * Runs the four test cards through `HttpPaymentGateway` against the live
+ * payments-mock with production timeouts (~7 s total, card 0004 dominates).
+ * See knowledge/scripts.md#payments-check
  */
 const DEFAULT_PAYMENTS_URL = 'http://localhost:4000';
 
@@ -75,13 +72,9 @@ async function main(): Promise<void> {
   let allMatched = true;
 
   for (const card of TEST_CARDS) {
-    // A fresh gateway (and so a fresh, CLOSED breaker) per card: 0003 and
-    // 0004 each fail all 3 attempts on their own, 6 failures together —
-    // over BREAKER_FAILURE_THRESHOLD (5) if they shared one breaker, which
-    // would flip 0004's last attempt to CIRCUIT_OPEN instead of TIMEOUT.
-    // Each card here demonstrates its own classification in isolation, the
-    // way the real app's breaker tripping across orders (Decisions) does
-    // not need to.
+    // Fresh gateway (and breaker) per card: 0003 and 0004 together exceed
+    // the breaker threshold and would turn 0004's last attempt into
+    // CIRCUIT_OPEN instead of TIMEOUT.
     const gateway = new HttpPaymentGateway({ baseUrl });
     const startedAt = Date.now();
     const result = await gateway.charge(buildCommand(card));

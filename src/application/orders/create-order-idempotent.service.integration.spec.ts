@@ -28,12 +28,8 @@ interface IdempotencyKeyRow {
 }
 
 /**
- * SPEC 07 Fix C — integration test: DATABASE_URL, PAYMENTS_URL
- * (`payments-mock` reachable, `docker compose up`) and
- * OTEL_EXPORTER_OTLP_ENDPOINT exported, a migrated Postgres reachable.
- * Asserts idempotency_keys.order_id is recorded for a 402, even though
- * the 402 response body itself carries no `orderId` extension member
- * (Decisions — only the 502 does).
+ * Asserts idempotency_keys.order_id is recorded for a 402 even though the
+ * 402 body carries no orderId.
  */
 describe('CreateOrderIdempotentService (integration) — Fix C order_id recording', () => {
   let boss: PgBoss;

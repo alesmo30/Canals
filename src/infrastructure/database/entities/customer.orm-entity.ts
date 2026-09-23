@@ -1,11 +1,6 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
-/**
- * Mirrors `customers` (migration, step 7). Pre-existing reference data —
- * read but never mutated by this service (data-model.dbml note). No domain
- * mirror: R0.5 keeps only Order/OrderItem as rich domain classes; this
- * table is used directly, no mapper.
- */
+/** Reference data: read, never mutated. Used directly, no domain class. */
 @Entity('customers')
 export class CustomerOrmEntity {
   @PrimaryGeneratedColumn('uuid')

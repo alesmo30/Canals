@@ -1,13 +1,6 @@
 /**
- * R0.5 (frozen contract): a geodetic point. Backs `warehouses.location` and
- * `orders.shipping_location` (both `geography(Point,4326)`), and is what
- * `GeocodingProvider.geocode()` returns.
- *
- * Deliberately has no distance method: FR-2 computes distance ranking in a
- * single SQL query (`location <-> :shippingPoint`, PostGIS geodesic
- * distance, index-assisted by the GiST index) — that is a database
- * responsibility, not a domain one, and reimplementing it in JS would give
- * a second, divergent notion of "distance."
+ * A geodetic point. No distance method on purpose: ranking is PostGIS's job
+ * in the selection query; a JS version would diverge.
  */
 export class Coordinates {
   private constructor(
@@ -16,13 +9,8 @@ export class Coordinates {
   ) {}
 
   /**
-   * Takes one named-property object, not positional (latitude, longitude)
-   * arguments. Both are plain `number`, so positional args let
-   * `Coordinates.of(lng, lat)` compile silently — the ±90/±180 range checks
-   * below do not catch a swap within the continental US, since both values
-   * land in range for both fields either way. A named object forces the
-   * caller to label each value: the mistake becomes a wrong key, not an
-   * invisible argument-order slip.
+   * Named properties, not positional args: a lat/lng swap passes the range
+   * checks within the US, so the caller must label each value.
    */
   static of(input: { latitude: number; longitude: number }): Coordinates {
     const { latitude, longitude } = input;

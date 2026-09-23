@@ -17,12 +17,9 @@ const ALLOWED_ORIGIN = 'http://localhost:3000';
 const REQUESTS_TO_TRIP_THE_LIMIT = 601;
 
 /**
- * specs/07-hardening-demo.md, R6.6 — e2e: DATABASE_URL, PAYMENTS_URL and
- * OTEL_EXPORTER_OTLP_ENDPOINT exported, a migrated Postgres reachable.
- * `Test.createTestingModule` does not run main.ts's `bootstrap()`, so
- * helmet/CORS/body-parser are re-applied here exactly as main.ts applies
- * them — the throttler guard itself is already wired through ApiModule
- * (APP_GUARD), needing no re-application.
+ * `createTestingModule` doesn't run `bootstrap()`, so helmet/CORS/body-parser
+ * are re-applied exactly as main.ts does; the throttler is already an
+ * APP_GUARD.
  */
 describe('HTTP hardening (e2e)', () => {
   let app: NestExpressApplication;

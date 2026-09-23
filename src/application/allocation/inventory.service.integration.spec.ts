@@ -14,14 +14,6 @@ import { ProductOrmEntity } from '../../infrastructure/database/entities/product
 import { WarehouseOrmEntity } from '../../infrastructure/database/entities/warehouse.orm-entity';
 import { orderToPersistence } from '../../infrastructure/database/mappers/order.mapper';
 
-/**
- * Integration test — same prerequisites as
- * warehouse-selection.repository.integration.spec.ts: DATABASE_URL (+
- * PAYMENTS_URL, OTEL_EXPORTER_OTLP_ENDPOINT) exported, a migrated
- * Postgres reachable. Builds its own customer/product/warehouse/order
- * fixtures (randomUUID-scoped), not seed.ts — the CI integration job
- * does not run the seed.
- */
 describe('InventoryService (integration)', () => {
   const service = new InventoryService();
   let customerId: string;
@@ -271,8 +263,8 @@ describe('InventoryService (integration)', () => {
       const inventory = await AppDataSource.getRepository(
         InventoryOrmEntity,
       ).findOneByOrFail({ warehouseId, productId });
-      // commit never touches quantity_available (specs/02-fulfilment-core.md,
-      // Decisions) — it stays at the post-reserve value, 5 - 3 = 2.
+      // commit never touches quantity_available — it stays at the
+      // post-reserve value, 5 - 3 = 2.
       expect(inventory.quantityAvailable).toBe(2);
       expect(inventory.quantityReserved).toBe(0);
       expect(await countMovements(warehouseId, productId, 'COMMIT')).toBe(1);

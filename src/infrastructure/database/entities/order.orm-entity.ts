@@ -4,7 +4,7 @@ import { bigintNumberTransformer } from '../transformers/bigint-number.transform
 import type { GeoPoint } from '../interfaces/geo-point';
 import type { OrderStatus } from '../../../domain/enum-types/order-status';
 
-/** Runtime mirror of the `order_status` enum (migration, step 7) — TypeORM's `enum` column option needs an actual array, not just a type. Exported so `ListOrdersQueryDto` (specs/06-read-side.md) can validate `status` against it without duplicating the enum. */
+/** Runtime mirror of order_status (TypeORM's `enum` option needs an array). Also used by ListOrdersQueryDto. */
 export const ORDER_STATUS_VALUES: readonly OrderStatus[] = [
   'PENDING_PAYMENT',
   'PAID',
@@ -14,13 +14,8 @@ export const ORDER_STATUS_VALUES: readonly OrderStatus[] = [
 ];
 
 /**
- * Mirrors `orders` (migration, step 8) column for column. No business
- * rules here — the Order domain class (src/domain/entities/order.ts) is
- * the one with the state machine; order.mapper.ts converts between them.
- *
- * `shippingLocation` is a GeoPoint — see geo-point.ts and
- * warehouse.orm-entity.ts's `location` for what TypeORM actually
- * returns/accepts here, verified directly against a live database.
+ * No business rules here; Order owns the state machine (converted by
+ * order.mapper). `shippingLocation` is a GeoPoint (see geo-point.ts).
  */
 @Entity('orders')
 export class OrderOrmEntity {

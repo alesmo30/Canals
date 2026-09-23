@@ -4,10 +4,9 @@ import { DataSource } from 'typeorm';
 
 import type { IdempotencyState } from '../../infrastructure/database/entities/idempotency-key.orm-entity';
 
-/** FR-6: every row this saga writes shares this scope (column default too). */
+/** Every row this saga writes shares this scope (also the column default). */
 const SCOPE = 'POST /orders';
 
-/** specs/05-order-creation-saga.md, Scope: 24h — a named constant, not an env var (references/coding-conventions.md). */
 const IDEMPOTENCY_KEY_TTL_HOURS = 24;
 
 export interface IdempotencyKeyRow {
@@ -45,9 +44,8 @@ function canonicalize(value: unknown): unknown {
 }
 
 /**
- * specs/05-order-creation-saga.md — sha256 of the body with keys sorted
- * and no whitespace, so the same logical payload always fingerprints the
- * same way regardless of field order.
+ * sha256 of the body with sorted keys and no whitespace, so field order
+ * never changes the fingerprint.
  */
 export function computeRequestFingerprint(body: unknown): string {
   const canonicalJson = JSON.stringify(canonicalize(body));
@@ -60,12 +58,9 @@ export interface InsertInProgressParams {
 }
 
 /**
- * Its own autocommit statement, called before any other work begins
- * (Risks table) — never inside the same transaction as Phase 1's
- * reservation. Lets the unique `(scope, idempotency_key)` violation
- * propagate; step 12's controller maps it to `409`/`422`/replay.
- * Returns the new row's `id`, which step 12 needs later to mark it
- * `COMPLETED`.
+ * Its own autocommit statement, before any other work — never inside the
+ * reservation transaction. Lets the unique violation propagate; returns
+ * the row id to mark COMPLETED later.
  */
 export async function insertInProgress(
   dataSource: DataSource,
@@ -85,9 +80,8 @@ export async function insertInProgress(
 }
 
 /**
- * `null` for both "no row" and "row past `expires_at`" — an expired key
- * is treated as if it never existed (specs/05-order-creation-saga.md,
- * Scope). Deleting it is P6's reaper, out of scope here.
+ * null for no row or an expired row — an expired key counts as absent.
+ * Deleting expired rows is out of scope here.
  */
 export async function findActiveByKey(
   dataSource: DataSource,
@@ -120,7 +114,7 @@ export interface MarkCompletedParams {
   responseBody: unknown;
 }
 
-/** Terminal write for any final request outcome, success or error alike (specs/05, Decisions) — `idempotency_state` has no third, "failed but retryable" value. */
+/** Terminal write for any final outcome — there is no "failed but retryable" state. */
 export async function markCompleted(
   dataSource: DataSource,
   params: MarkCompletedParams,

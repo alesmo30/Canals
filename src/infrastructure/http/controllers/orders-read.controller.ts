@@ -14,10 +14,8 @@ import { GetOrderService } from '../../../application/orders/get-order.service';
 import { ListOrdersService } from '../../../application/orders/list-orders.service';
 
 /**
- * specs/06-read-side.md — `GET /orders`/`GET /orders/:id`. Separate file
- * from `orders.controller.ts` (P4, `POST /orders`) — same `orders`
- * prefix, no route collision: `@Get()` is `orders` exact, `@Get(':id')`
- * is `orders/:id`.
+ * `GET /orders` and `GET /orders/:id`; separate from the `POST /orders`
+ * controller, same prefix, no route collision.
  */
 @ApiTags('orders')
 @Controller('orders')
@@ -28,11 +26,8 @@ export class OrdersReadController {
   ) {}
 
   /**
-   * specs/06-read-side.md, Decisions — a local `ValidationPipe`, not the
-   * global one in main.ts: `transform: true` is what makes `pageSize`
-   * arrive as a `number`, and adding it to the global pipe would risk
-   * changing how `CreateOrderDto` (SPEC 05, already verified) coerces its
-   * own fields.
+   * Local `ValidationPipe` with `transform: true` (so `pageSize` is a
+   * number); adding it globally would change `CreateOrderDto` coercion.
    */
   @Get()
   @ApiResponse({ status: 200, description: 'A page of orders.' })

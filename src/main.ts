@@ -1,7 +1,4 @@
-// SPEC 04 step 7: must be the first import — see tracing.ts's own comment
-// on why (auto-instrumentation patches http/pg by hooking their
-// require(), so anything imported before this leaves them
-// un-instrumented).
+// Must be the first import — see tracing.ts.
 import './infrastructure/observability/tracing';
 
 import { ValidationPipe } from '@nestjs/common';
@@ -17,44 +14,33 @@ import { ApiModule } from './modules/api.module';
 import type { AppConfig } from './infrastructure/config/env.schema';
 import { redact } from './infrastructure/http/redaction';
 
-/** SPEC 07 R6.6 — a value nobody tunes per deployment, so a constant, not an env var (references/coding-conventions.md). */
+/** Not tuned per deployment, so a constant. */
 const BODY_LIMIT = '16kb';
 
-/** SPEC 07 R6.6, Risks: Helmet's default CSP blocks Swagger UI's inline assets — relaxed for `/docs` only, not globally. */
+/** Helmet's default CSP blocks Swagger UI's inline assets; relaxed for /docs only. */
 const DOCS_PATH_PREFIX = '/docs';
 
 async function bootstrap() {
-  // abortOnError: false — without it, Nest's own bootstrap exception zone
-  // catches a thrown `validate` error (see env.schema.ts), logs its own
-  // stack trace and calls process.exit(1) itself, before the promise below
-  // ever rejects. Disabling it means every bootstrap failure, config or
-  // otherwise, is reported the same deliberate way below.
-  // bufferLogs: true — Nest's own bootstrap logs (module init, route
-  // mapping) are held until useLogger() below installs the redacting
-  // pino logger, instead of going to Nest's default console logger first.
+  // abortOnError: false — otherwise Nest logs and exits on a boot error
+  // itself, before the catch below ever runs.
+  // bufferLogs: true — hold Nest's boot logs until the redacting pino
+  // logger is installed, instead of the default console logger.
   const app = await NestFactory.create<NestExpressApplication>(ApiModule, {
     abortOnError: false,
     bufferLogs: true,
   });
-  // SPEC 03 step 2: every log line from here on — app logs, and
-  // pino-http's own request/response logging — goes through redact()
-  // (SharedModule's LoggerModule.forRoot(pinoOptions)).
+  // Every log line from here on (app and pino-http) goes through redact().
   app.useLogger(app.get(Logger));
-  // Without this, SIGTERM kills the process directly and
-  // PgBossShutdownHook.onApplicationShutdown() never runs — the api's own
-  // pg-boss pool (and its internal timers) would leak instead of closing
-  // (SPEC 04 step 9 finding — surfaced by this file's e2e test never
-  // exiting cleanly).
+  // Without shutdown hooks SIGTERM skips PgBossShutdownHook and the api's
+  // pg-boss pool leaks.
   app.enableShutdownHooks();
-  // R0.1: global ValidationPipe, no DTOs to validate yet — P4 only writes
-  // DTOs, this file does not change again for that.
+  // Global ValidationPipe: unknown body properties are rejected.
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
   );
 
-  // SPEC 07 R6.6 — HTTP hardening. `/docs` gets Helmet's other headers
-  // but no CSP — Swagger UI's inline assets would otherwise be blocked
-  // (Risks) — every other route keeps the full default policy.
+  // /docs gets Helmet without CSP (Swagger inline assets); every other
+  // route keeps the full policy.
   const defaultHelmet = helmet();
   const docsHelmet = helmet({ contentSecurityPolicy: false });
   app.use((req: Request, res: Response, next: NextFunction) => {
@@ -68,16 +54,12 @@ async function bootstrap() {
     .get<ConfigService<AppConfig, true>>(ConfigService)
     .get('CORS_ORIGINS', { infer: true });
   app.enableCors({ origin: corsOrigins, methods: ['GET', 'POST'] });
-  // Registered before listen()/init() so the express adapter's own
-  // default json parser (same middleware name, "jsonParser") is never
-  // added on top of this one — this becomes the only json body parser.
+  // Registered before listen() so it replaces, rather than stacks on,
+  // the express adapter's default json parser.
   app.useBodyParser('json', { limit: BODY_LIMIT });
 
-  // SPEC 07 R6.6 — OpenAPI at /docs. The request DTOs (CreateOrderDto,
-  // ListOrdersQueryDto) are introspected by the CLI plugin
-  // (nest-cli.json); the response DTOs are plain interfaces with no
-  // runtime metadata, so each route documents its outcomes with
-  // @ApiResponse descriptions instead of a generated schema.
+  // OpenAPI at /docs: request DTOs via the CLI plugin; response types are
+  // interfaces, documented with @ApiResponse.
   const openApiDocument = SwaggerModule.createDocument(
     app,
     new DocumentBuilder()
@@ -93,10 +75,8 @@ async function bootstrap() {
   await app.listen(process.env.PORT ?? 3000);
 }
 
-// R0.3: the app refuses to start on invalid config rather than failing
-// later. ConfigModule's `validate` (env.schema.ts) throws during
-// NestFactory.create() on a bad or missing variable; caught here so the
-// process exits non-zero with the reason instead of an unhandled rejection.
+// Invalid config throws during create(); caught here so the process exits
+// non-zero with the reason.
 bootstrap().catch((error: unknown) => {
   // eslint-disable-next-line no-console -- last resort: the pino logger may not exist yet if boot itself failed. redact() still guards this line.
   console.error(redact(error));

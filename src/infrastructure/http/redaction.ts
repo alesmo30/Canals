@@ -1,12 +1,7 @@
 /**
- * SPEC 03: no card number or secret may reach a log line. `redact()` is the
- * single function every log call is run through (via the `nestjs-pino`
- * logger, see `main.ts`), and every adapter passes its `rawResponse`
- * through it before it crosses a port.
- *
- * Pure: returns a redacted deep copy, never mutates its input, and
- * survives circular references (a `WeakMap` remembers what has already
- * been cloned).
+ * No card number or secret may reach a log line. `redact()` runs on every
+ * log call and on every adapter's `rawResponse` before it crosses a port.
+ * Pure: returns a redacted deep copy, never mutates, survives cycles.
  */
 
 /** Keys whose value is a card number: masked, keeping the last four digits. */

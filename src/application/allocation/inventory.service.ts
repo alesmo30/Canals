@@ -11,12 +11,7 @@ import {
   updateInventoryBalances,
 } from './helpers/inventory.helpers';
 
-/**
- * specs/02-fulfilment-core.md, Decisions: a named constant, not an
- * environment variable — adding one would mean touching P0's
- * env.schema.ts and .env.example for a value nobody tunes per
- * deployment. P6's reaper reads this same constant, not a hardcoded 15.
- */
+/** Also read by the reservation reaper — don't hardcode 15 elsewhere. */
 export const RESERVATION_TTL_MINUTES = 15;
 
 interface LatestMovementRow {
@@ -25,11 +20,9 @@ interface LatestMovementRow {
 }
 
 /**
- * specs/02-fulfilment-core.md — reserve/release/commit all take the
- * caller's `EntityManager` and never open a transaction of their own
- * (Decisions: "Yes: reserve, release and commit all take the caller's
- * EntityManager..."). `AllocateInventoryUseCase` (step 8) owns the
- * transaction boundary and the failover loop.
+ * Every method takes the caller's EntityManager and never opens its own
+ * transaction; AllocateInventoryUseCase owns the boundary and the failover
+ * loop.
  */
 @Injectable()
 export class InventoryService {
@@ -53,10 +46,8 @@ export class InventoryService {
       throw error;
     }
 
-    // Re-verify availability under the lock — the candidate came from a
-    // selection query run before this transaction opened, so stock may
-    // have moved since (specs/02-fulfilment-core.md, R1.3's failover
-    // exists exactly for this race).
+    // Re-verify availability under the lock: the candidate came from a query
+    // run before this transaction, so stock may have moved.
     const unmetProductIds = command.lines
       .filter((line) => {
         const row = byProductId.get(line.productId);
@@ -82,9 +73,8 @@ export class InventoryService {
         reservedAfter,
       });
 
-      // Append-only ledger: order_id is always populated on rows P1
-      // writes (Decisions) — a movement that cannot name its order
-      // answers none of the questions the ledger exists for.
+      // Movements always carry order_id — a row that can't name its order
+      // answers none of the ledger's questions.
       await insertMovement(manager, {
         warehouseId: command.warehouseId,
         productId: line.productId,
@@ -105,12 +95,9 @@ export class InventoryService {
   }
 
   /**
-   * Returns the reservation's stock, per line: `quantity_available` up,
-   * `quantity_reserved` down, by the amount that line's `RESERVE`
-   * movement originally moved. Idempotent: no-ops a line whose latest
-   * movement is already `RELEASE` or `COMMIT` (specs/02-fulfilment-core.md,
-   * Decisions — checking only "any RELEASE exists" would miss the
-   * release-after-commit case).
+   * Returns each line's reserved stock (amount from its RESERVE movement).
+   * Idempotent: no-op when the line's latest movement is already RELEASE or
+   * COMMIT ("any RELEASE exists" would miss release-after-commit).
    */
   async release(
     manager: EntityManager,
@@ -166,12 +153,8 @@ export class InventoryService {
   }
 
   /**
-   * Ends the reservation, per line, without touching
-   * `quantity_available` — the units left the available pool when they
-   * were reserved; confirming the sale only ends the reservation
-   * (specs/02-fulfilment-core.md, Decisions). Idempotent, same rule as
-   * `release`: no-ops a line whose latest movement is already `RELEASE`
-   * or `COMMIT`.
+   * Ends the reservation without touching quantity_available (units left
+   * the pool at reserve). Idempotent, same latest-movement rule as release.
    */
   async commit(manager: EntityManager, command: ReleaseCommand): Promise<void> {
     const byProductId = await lockInventoryRows(

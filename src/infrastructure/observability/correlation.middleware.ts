@@ -6,7 +6,6 @@ import type { NextFunction, Request, Response } from 'express';
 
 import { correlationStorage } from './correlation';
 
-/** SPEC 04 Named constants — correlation middleware. */
 export const CORRELATION_ID_MAX_LENGTH = 128;
 const CORRELATION_ID_PATTERN = /^[A-Za-z0-9-]+$/;
 
@@ -19,12 +18,8 @@ function isValidCorrelationId(value: string): boolean {
 }
 
 /**
- * SPEC 04 Scope: honours an inbound `X-Correlation-Id` when valid
- * (`isValidCorrelationId`), generates a UUID otherwise, stores it in
- * `correlationStorage` for the rest of the request, and echoes it back —
- * so a client or gateway that already has its own identifier can search
- * its logs and ours with the same string (Decisions, "Correlation and
- * tracing").
+ * Honours a valid inbound X-Correlation-Id, else generates one; stores it
+ * for the request and echoes it back.
  */
 @Injectable()
 export class CorrelationMiddleware implements NestMiddleware {

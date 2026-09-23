@@ -23,13 +23,9 @@ export interface AllocationResult {
 }
 
 /**
- * specs/02-fulfilment-core.md — R1.3's failover loop. Selects candidates
- * once, then tries each in its own transaction (never a domain-level
- * retry inside `InventoryService` — a rolled-back transaction cannot be
- * retried, so each attempt needs its own, and this is the only component
- * above `reserve` that can open one). `select-warehouse.sql`'s own
- * `LIMIT 3` is what bounds this to "up to 3 attempts" — there is nothing
- * else to cap here.
+ * Selects candidates once, then tries each in its own transaction (a
+ * rolled-back transaction can't be retried). The SQL's LIMIT 3 bounds the
+ * attempts.
  */
 @Injectable()
 export class AllocateInventoryUseCase {
@@ -51,10 +47,8 @@ export class AllocateInventoryUseCase {
       throw new NoFulfilmentPossibleError(requestedProductIds, 'NO_CANDIDATES');
     }
 
-    // Generated once, before the first attempt, and reused across every
-    // retry — a failed attempt rolls its whole transaction back, so
-    // nothing conflicts, and the id stays stable for whoever is tracking
-    // it outside this loop (specs/02-fulfilment-core.md, Decisions).
+    // Generated once and reused across attempts: a failed attempt rolls back
+    // fully, and the id stays stable for whoever tracks it.
     const orderId = randomUUID();
     const unmetProductIds = new Set<string>();
 

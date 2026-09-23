@@ -21,11 +21,8 @@ const UNKNOWN_ADDRESS_MESSAGE =
   'Address could not be resolved by the static geocoder — see README for its supported cities and limits.';
 
 /**
- * SPEC 03: the default `GeocodingProvider`, for demo and test use only
- * (Decisions: a real provider is Geoapify's job, opt-in). A ~30-city
- * table plus a `sha256` jitter of up to ±0.05° computed from the
- * normalised address (excluding `recipient`) — deterministic across
- * runs and processes, never a network call.
+ * Default provider, demo/test only: ~30-city table plus deterministic
+ * sha256 jitter (±0.05°) from the normalised address. No network.
  */
 export class StaticGeocodingProvider implements GeocodingProvider {
   private readonly logger = new Logger(StaticGeocodingProvider.name);

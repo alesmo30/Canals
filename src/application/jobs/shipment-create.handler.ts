@@ -6,11 +6,8 @@ import { ShipmentService } from './shipment.service';
 import { OrderConfirmedPayload } from '../../infrastructure/messaging/event-routing';
 
 /**
- * SPEC 04 Scope: creates the shipment via `ShipmentService`
- * (`infrastructure.md` §3's own worked example for this exact handler).
- * A thrown error (order not found, null `warehouse_id`) is left to
- * pg-boss's retry/dead-letter mechanism (step 6) — this handler does not
- * catch it.
+ * Errors (missing order, null warehouse_id) are left to pg-boss
+ * retry/dead-letter.
  */
 @Injectable()
 export class ShipmentCreateHandler implements JobHandler<OrderConfirmedPayload> {

@@ -25,21 +25,9 @@ import { AppDataSource } from '../database/data-source';
 import { getCorrelationId } from '../observability/correlation';
 
 /**
- * SPEC 04 step 6 — requires DATABASE_URL (+ PAYMENTS_URL,
- * OTEL_EXPORTER_OTLP_ENDPOINT for env.schema.ts's validation) exported and
- * a migrated Postgres reachable. Both tests run with a fast poll interval
- * (`FAST_CONFIG_SERVICE`) so five attempts take seconds, not minutes
- * (Risks: "the shipped values are asserted once by a test that reads back
- * the queue configuration created at boot" — see the last `it()` below;
- * QUEUE_RETRY_LIMIT/_DELAY_SECONDS/_DELAY_MAX_SECONDS themselves are never
- * redefined for the test).
- *
- * The realistic test temporarily speeds up the *real* `shipment.create`
- * queue's retry timing via `updateQueue`, then restores it — safe here
- * because the integration CI job runs only `postgres`, no live worker
- * consuming the same queues (`.github/workflows/tests.yml`). Running this
- * file locally against a `docker compose up`'d worker will race it —
- * `docker compose stop worker` first.
+ * Fast poll interval so five attempts take seconds. Temporarily speeds up
+ * the real `shipment.create` queue — stop any local worker first or it will
+ * race. See knowledge/testing.md#job-runner-tests
  */
 const FAST_POLLING_INTERVAL_SECONDS = 1;
 const FAST_CONFIG_SERVICE = {
@@ -59,16 +47,9 @@ async function waitUntil(
 }
 
 /**
- * Reads `pgboss.job` directly rather than `boss.getQueueStats(name, {
- * force: true })`: that call throttles to one real recomputation per
- * *queue* per 60 s (`QUEUE_STATS_FORCE_TTL_SECONDS` in
- * `node_modules/pg-boss/dist/manager.js`) and serves the cached result to
- * every call inside that window — fine for step 8's gauge, which only ever
- * samples once every `DLQ_GAUGE_INTERVAL_MS` (60 s), but it silently
- * starves a tight poll loop like this one (found by this test timing out
- * at exactly its 20 s deadline despite the row landing 9 s in). None of
- * this repo's queues set `partition: true`, so every job — including a
- * dead-lettered one — lives in the one shared `pgboss.job` table.
+ * Reads `pgboss.job` directly: `getQueueStats({ force: true })` recomputes at
+ * most once per queue per 60 s and would starve this poll loop.
+ * See knowledge/investigations.md#pgboss-queue-stats-throttle
  */
 async function dlqRowCount(dlqName: string): Promise<number> {
   const rows: { count: string }[] = await AppDataSource.query(
@@ -95,13 +76,8 @@ describe('JobRunner — retries and dead-letter queues (integration)', () => {
 
   beforeAll(async () => {
     await AppDataSource.initialize();
-    // pg-boss's own dead-lettering (the "retries and DLQ" tests below)
-    // happens on its background supervise pass, not on job pickup —
-    // default superviseIntervalSeconds is 60s, so without this override
-    // the DLQ row can land anywhere from ~0s to ~60s after the last
-    // attempt fails, racing this file's 20s waitUntil budget. Sped up
-    // the same way FAST_CONFIG_SERVICE already speeds up JobRunner's own
-    // poll interval.
+    // Dead-lettering happens on pg-boss's supervise pass (default 60 s);
+    // sped up so the DLQ row lands within the test budget.
     boss = new PgBoss({
       connectionString: process.env.DATABASE_URL,
       max: 2,
@@ -167,9 +143,8 @@ describe('JobRunner — retries and dead-letter queues (integration)', () => {
     await boss.offWork(queueName);
 
     const row = await dlqRow(dlqName);
-    // source_retry_count is the retryCount at the terminal (5th) attempt,
-    // 0-indexed (SPEC 04 step 6 — traced against plans.js's failJobsBody/
-    // fetch SQL): +1 gives the attempt count R3.5 asks for.
+    // source_retry_count is 0-indexed at the final attempt; +1 gives the
+    // attempt count.
     expect((row?.source_retry_count ?? -1) + 1).toBe(5);
     expect(JSON.stringify(row?.output)).toContain('synthetic failure');
 
@@ -216,15 +191,8 @@ describe('JobRunner — retries and dead-letter queues (integration)', () => {
         payload: { orderId, occurredAt: new Date().toISOString() },
       });
 
-      // Wait for the full expected end-state, not just the DLQ landing:
-      // shipment.create's 5 attempts (with backoff) take noticeably longer
-      // than customer.notify/analytics.record's single successful
-      // attempt, but each queue polls independently — asserting the
-      // instant the DLQ row appears raced the other two on their own next
-      // poll tick. Scoped to this run's own orderId (not a bare
-      // dlqRowCount) so a DLQ row left over from an earlier local run
-      // can't satisfy it early — the dead-lettered copy carries the same
-      // `data` as the original job, orderId included.
+      // Wait for the full end state, scoped to this run's orderId: queues
+      // poll independently, and older DLQ rows carry the same data.
       let orderJobsRes: { name: string; state: string }[] = [];
       await waitUntil(async () => {
         orderJobsRes = await AppDataSource.query(
@@ -248,10 +216,8 @@ describe('JobRunner — retries and dead-letter queues (integration)', () => {
       const byQueue = new Map(orderJobsRes.map((row) => [row.name, row.state]));
       expect(byQueue.get('customer.notify')).toBe('completed');
       expect(byQueue.get('analytics.record')).toBe('completed');
-      // The original shipment.create row is re-inserted terminally
-      // 'failed' (not deleted) by pg-boss's failJobsBody — a *separate*
-      // copy is what lands in shipment.create.dlq (insertDeadLetterJob,
-      // SPEC 04 step 1 finding).
+      // The original job stays as 'failed'; a separate copy lands in the
+      // DLQ.
       expect(byQueue.get('shipment.create')).toBe('failed');
 
       // Scoped by orderId (not the generic dlqRow()) so a DLQ row left
@@ -261,14 +227,8 @@ describe('JobRunner — retries and dead-letter queues (integration)', () => {
         `select output from pgboss.job where name = 'shipment.create.dlq' and data->'payload'->>'orderId' = $1`,
         [orderId],
       );
-      // Not literally "foreign key": Postgres checks NOT NULL constraints
-      // (ExecConstraints, before the row is even inserted) ahead of FK
-      // triggers (which only fire on an already-inserted row) — verified
-      // directly in psql. shipment.service.ts's warehouse_id subquery
-      // resolves NULL for a missing order exactly like it does for an
-      // existing order with no warehouse_id, so this scenario surfaces as
-      // the same not-null violation, never the order_id FK (SPEC 04
-      // Decisions, "The event contract" — deviation recorded there).
+      // Surfaces as a NOT NULL violation, not the order_id FK.
+      // See knowledge/investigations.md#not-null-before-fk
       expect(JSON.stringify(dlqEntry?.output).toLowerCase()).toContain(
         'not-null constraint',
       );

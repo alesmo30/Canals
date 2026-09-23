@@ -1,12 +1,5 @@
 import { AppDataSource } from './data-source';
 
-/**
- * Integration test — requires DATABASE_URL (+ PAYMENTS_URL,
- * OTEL_EXPORTER_OTLP_ENDPOINT for env.schema.ts's validation) exported and
- * a Postgres reachable with the migration already applied. Not one of the
- * "no database" tests (Money, the order state machine) — this is what the
- * `verify` script (step 13) running against a compose stack is for.
- */
 describe('AppDataSource', () => {
   beforeAll(async () => {
     await AppDataSource.initialize();

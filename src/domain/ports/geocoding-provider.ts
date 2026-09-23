@@ -2,11 +2,8 @@ import { Coordinates } from '../value-objects/coordinates';
 import { ShippingAddress } from '../value-objects/shipping-address';
 
 /**
- * R0.6 (frozen contract). Implemented by P2 (`GeoapifyGeocodingProvider` and
- * a `StaticGeocodingProvider` stub, selected by `GEOCODING_DRIVER`) and
- * consumed by P4 when creating an order (FR-3): only the shipping address
- * is geocoded — warehouse coordinates are fixed reference data, seeded
- * once, never geocoded at request time.
+ * Only the shipping address is geocoded; warehouse coordinates are seeded
+ * reference data. The driver is chosen by GEOCODING_DRIVER.
  */
 export interface GeocodingProvider {
   geocode(address: ShippingAddress): Promise<Coordinates>;

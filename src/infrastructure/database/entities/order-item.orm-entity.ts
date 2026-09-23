@@ -3,10 +3,8 @@ import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 import { bigintNumberTransformer } from '../transformers/bigint-number.transformer';
 
 /**
- * Mirrors `order_items` (migration, step 8) column for column. Maps to the
- * OrderItem domain class (src/domain/entities/order-item.ts) via
- * order.mapper.ts — `quantity > 0` is enforced by the CHECK constraint in
- * the migration and, independently, by OrderItem's own constructor guard.
+ * Maps to OrderItem via order.mapper. `quantity > 0` is enforced by a CHECK
+ * and by OrderItem's constructor.
  */
 @Entity('order_items')
 export class OrderItemOrmEntity {

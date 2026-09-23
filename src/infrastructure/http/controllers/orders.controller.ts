@@ -7,12 +7,7 @@ import { OrderResponse } from '../dto/order-response.dto';
 import { ProblemDetails } from '../filters/problem-details.filter';
 import { CreateOrderIdempotentService } from '../../../application/orders/create-order-idempotent.service';
 
-/**
- * specs/05-order-creation-saga.md — `POST /orders`. A thin HTTP adapter:
- * all of the `Idempotency-Key` orchestration lives in
- * `CreateOrderIdempotentService` (application layer), including which
- * status/body this endpoint answers with.
- */
+/** Thin HTTP adapter; `Idempotency-Key` orchestration lives in `CreateOrderIdempotentService`. */
 @ApiTags('orders')
 @Controller('orders')
 export class OrdersController {
@@ -20,12 +15,7 @@ export class OrdersController {
     private readonly createOrderIdempotentService: CreateOrderIdempotentService,
   ) {}
 
-  /**
-   * SPEC 07 R6.6: `OrderResponse`/`ProblemDetails` are plain interfaces
-   * (no runtime metadata for the CLI plugin to introspect), so each
-   * outcome is documented with an `@ApiResponse` description instead of a
-   * generated schema.
-   */
+  /** Response types are plain interfaces, so outcomes are documented with `@ApiResponse` descriptions. */
   @Post()
   @ApiHeader({
     name: 'Idempotency-Key',

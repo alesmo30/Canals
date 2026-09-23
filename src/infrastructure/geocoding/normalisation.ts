@@ -1,6 +1,6 @@
 import { ShippingAddress } from '../../domain/value-objects/shipping-address';
 
-/** Full state name -> two-letter USPS code. 50 states plus DC, per SPEC 03. */
+/** Full state name → USPS code (50 states plus DC). */
 const STATE_NAME_TO_CODE: Readonly<Record<string, string>> = {
   alabama: 'AL',
   alaska: 'AK',
@@ -58,9 +58,8 @@ const STATE_NAME_TO_CODE: Readonly<Record<string, string>> = {
 const ACCEPTED_COUNTRIES = new Set(['us', 'usa', 'united states']);
 
 /**
- * Unicode NFD with diacritics stripped, trimmed, internal whitespace
- * collapsed, lower-cased. Shared by the static lookup, the jitter and the
- * cache key (SPEC 03).
+ * NFD with diacritics stripped, trimmed, whitespace collapsed, lower-cased.
+ * Shared by the static lookup, the jitter and the cache key.
  */
 export function normalizeText(value: string): string {
   return value

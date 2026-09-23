@@ -7,9 +7,8 @@ import {
 import { ListOrdersQueryDto } from './list-orders-query.dto';
 
 /**
- * specs/06-read-side.md, step 10 — the same pipe config the controller
- * passes to `@Query(...)` (`transform: true` is what makes `pageSize`
- * arrive as a `number`, unlike the global pipe in main.ts).
+ * Same pipe config the controller passes to `@Query(...)` (`transform: true`,
+ * unlike the global pipe in main.ts).
  */
 describe('ListOrdersQueryDto', () => {
   const pipe = new ValidationPipe({

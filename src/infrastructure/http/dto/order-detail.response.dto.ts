@@ -44,10 +44,8 @@ export interface OrderDetailResponse {
 }
 
 /**
- * specs/06-read-side.md, R5.5 — an explicit field-by-field projection.
- * Deliberately leaves out `card_last4`/`card_brand`/`provider_payment_id`/
- * `idempotency_key`/`raw_response` — no field in `PaymentAttemptRow`
- * beyond the ones listed here is ever read (Decisions).
+ * Explicit projection: `card_last4`/`card_brand`, `provider_payment_id`,
+ * `idempotency_key` and `raw_response` are deliberately never exposed.
  */
 export function toOrderDetailResponse(
   result: GetOrderResult,

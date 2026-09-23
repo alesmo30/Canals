@@ -5,10 +5,8 @@ interface OrderNumberRow {
 }
 
 /**
- * specs/05-order-creation-saga.md — `CNL-<year>-<6 digits>`, backed by the
- * `order_number_seq` global sequence. Called once, before
- * `AllocateInventoryUseCase`'s failover loop, so the number stays stable
- * across retries (Decisions).
+ * CNL-<year>-<6 digits> from the global order_number_seq. Called once
+ * before the failover loop so it's stable across retries.
  */
 export async function generateOrderNumber(
   dataSource: DataSource,

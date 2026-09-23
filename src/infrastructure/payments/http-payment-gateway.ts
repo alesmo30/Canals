@@ -33,12 +33,7 @@ interface ProviderResponse {
   body: Record<string, unknown> | null;
 }
 
-/**
- * Base for every failure `fetch` itself can produce — the shared marker
- * `retry.ts`'s `isTransient` recognises. `CircuitOpenError`
- * (`circuit-breaker.ts`) is deliberately not one of these: it is not
- * transient, so retrying it would be pointless (Decisions).
- */
+/** Transient fetch failures that retry.ts recognises. `CircuitOpenError` isn't one: retrying it is pointless. */
 abstract class RetryableProviderError extends Error {}
 class ProviderErrorException extends RetryableProviderError {}
 class TimeoutException extends RetryableProviderError {}
@@ -50,15 +45,9 @@ function isRetryable(outcome: unknown): boolean {
 }
 
 /**
- * SPEC 03. Implements P0's `PaymentGateway` against `payments-mock` (or any
- * provider speaking its wire contract) with native `fetch`. Never throws on
- * a provider failure — every branch below resolves to a `ChargeResult`,
- * classification is total, so P4 can switch on `status` without a
- * `try/catch` that might swallow a programming error (Decisions).
- *
- * `charge()` and `getStatus()` share one breaker and one retry policy:
- * they hit the same host, and per-attempt counting means five failed
- * attempts can come from as few as two orders.
+ * Never throws on a provider failure — every branch resolves a
+ * `ChargeResult`, so callers need no try/catch. `charge()` and
+ * `getStatus()` share one breaker and retry policy.
  */
 export class HttpPaymentGateway implements PaymentGateway {
   private readonly baseUrl: string;
@@ -211,7 +200,7 @@ function mapChargeResponse(
       rawResponse,
     };
   }
-  // 400 / 422: a bug on our side, not a card outcome (Decisions).
+  // 400 / 422: a bug on our side, not a card outcome.
   return {
     status: 'UNKNOWN',
     providerPaymentId,
@@ -223,10 +212,8 @@ function mapChargeResponse(
 }
 
 /**
- * SPEC 07 Fix B: every non-`404` answer used to map to `CAPTURED` — a
- * `400`, `401`, `422`, `429` or a `200` with an unexpected body all read as
- * "the customer was charged". Reconciliation (R6.2) trusts this function,
- * so an unrecognised answer must be `UNKNOWN`, never a guess (Decisions).
+ * 404 is FAILED; only a recognised 200 maps to CAPTURED/DECLINED; anything
+ * else is UNKNOWN, never a guess — reconciliation trusts this.
  */
 function mapStatusResponse(response: ProviderResponse): ChargeResult {
   const rawResponse = redact(response.body);
@@ -302,7 +289,7 @@ function classifyThrownFailure(error: unknown): PaymentFailureCode {
     return 'CONNECTION_REFUSED';
   }
   // NetworkErrorException, or anything else this adapter didn't throw
-  // itself — still UNKNOWN, so the fallback is safe (Risks).
+  // itself — still UNKNOWN, so the fallback is safe.
   return 'NETWORK_ERROR';
 }
 

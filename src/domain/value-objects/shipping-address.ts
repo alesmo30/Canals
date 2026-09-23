@@ -9,17 +9,9 @@ export interface ShippingAddressProps {
 }
 
 /**
- * R0.5 (frozen contract): matches the request shape of `POST /orders`
- * (`shippingAddress`, FR-1) and the `orders.shipping_address` jsonb
- * snapshot column — same field names, camelCase throughout.
- *
- * Frozen the moment an order is created: the order stores this snapshot
- * rather than a reference to the customer's address, so editing a customer
- * profile later never rewrites a past order (data-model.dbml, orders note).
- *
- * Field-level format rules (e.g. "is this a valid US state code") are a
- * request-DTO concern for P4, not this value object's job here in P0 — it
- * only guards that the fields the domain actually depends on are present.
+ * Snapshot stored on the order, so editing a customer never rewrites past
+ * orders. Field format rules belong to the request DTO; this only guards
+ * required fields.
  */
 export class ShippingAddress {
   private constructor(private readonly props: Readonly<ShippingAddressProps>) {}

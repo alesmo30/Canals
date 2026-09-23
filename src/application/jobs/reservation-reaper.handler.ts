@@ -26,12 +26,9 @@ interface ExpiredReservationRow {
 }
 
 /**
- * specs/07-hardening-demo.md, R6.1 — run every minute by the worker's
- * scheduler (queue-setup.ts's SCHEDULED_JOBS). Resolves every
- * `PENDING_PAYMENT` order whose reservation has expired, through
- * `OrderSettlementService` so it can never race the saga's Phase 3 or
- * reconciliation. One order's failure is logged and does not abort the
- * batch (Decisions) — a crash mid-batch is simply the next minute's run.
+ * Every minute: resolves expired PENDING_PAYMENT reservations through
+ * OrderSettlementService. One order's failure is logged, not batch-fatal.
+ * See knowledge/messaging-jobs.md#reservation-reaper
  */
 @Injectable()
 export class ReservationReaperHandler implements JobHandler<
@@ -69,11 +66,9 @@ export class ReservationReaperHandler implements JobHandler<
   }
 
   /**
-   * Selection only — this transaction commits (and its `FOR UPDATE` lock
-   * releases) the moment the query returns; `OrderSettlementService`
-   * re-locks and re-checks each order's status itself, in its own
-   * transaction, once this method's row is actually resolved
-   * (specs/07-hardening-demo.md).
+   * Selection only: this transaction's FOR UPDATE lock ends when the query
+   * returns. OrderSettlementService re-locks and re-checks each order in its
+   * own transaction.
    */
   private async selectExpiredReservations(): Promise<ExpiredReservationRow[]> {
     return this.dataSource.transaction(async (manager) => {
@@ -130,7 +125,7 @@ export class ReservationReaperHandler implements JobHandler<
     }
     if (chargeResult.status === 'FAILED') {
       // getStatus()'s only route to FAILED is a 404 — the provider never
-      // saw this charge (Fix B's table).
+      // saw this charge.
       await this.orderSettlementService.cancelUnpaid({
         orderId: row.id,
         reason: 'RESERVATION_EXPIRED_NOT_CHARGED',
@@ -139,9 +134,8 @@ export class ReservationReaperHandler implements JobHandler<
       return;
     }
 
-    // UNKNOWN: never auto-released — releasing stock for a charge that
-    // did go through is worse than holding it until a human looks
-    // (Decisions).
+    // UNKNOWN is never auto-released: releasing stock for a charge that did
+    // go through is worse than holding it until a human looks.
     this.warnUnresolved(row);
   }
 

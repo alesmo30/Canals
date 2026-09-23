@@ -18,9 +18,8 @@ import { OrderNotFoundError } from '../../../application/orders/order-read.error
 import { correlationStorage } from '../../observability/correlation';
 
 /**
- * specs/05-order-creation-saga.md, step 8 — one case per row of R4.5's
- * table, isolated: each exception is passed to `.catch()` directly,
- * without booting Nest.
+ * One case per error-mapping row, calling `.catch()` directly without
+ * booting Nest.
  */
 describe('ProblemDetailsFilter', () => {
   const filter = new ProblemDetailsFilter();

@@ -6,13 +6,8 @@ import { CustomerOrmEntity } from '../entities/customer.orm-entity';
 import { OrderOrmEntity } from '../entities/order.orm-entity';
 
 /**
- * specs/06-read-side.md, AC #4 — the base-case listing query (no filters)
- * must show `idx_orders_keyset` in use. Captures the exact SQL/params
- * `findPage` sends by spying on `AppDataSource.query`, then re-runs that
- * captured statement prefixed with `EXPLAIN (FORMAT JSON)` — never a
- * hand-duplicated copy of the WHERE/ORDER BY, so this cannot drift from
- * what the repository actually executes. Integration test — same
- * prerequisites as the sibling `orders-read.repository.integration.spec.ts`.
+ * The base-case listing must use `idx_orders_keyset`. EXPLAINs the exact SQL
+ * `findPage` sent (captured via a spy), so it can't drift.
  */
 describe('OrdersReadRepository.findPage query plan (integration)', () => {
   let repo: OrdersReadRepository;

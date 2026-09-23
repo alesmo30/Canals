@@ -5,6 +5,6 @@ export type PaymentStatus =
   | 'CAPTURED'
   | 'DECLINED'
   | 'FAILED'
-  // Provider timeout. Resolved by the reconciliation job (FR-5).
+  // Provider timeout; resolved later by the reconciliation job.
   | 'UNKNOWN'
   | 'REFUNDED';

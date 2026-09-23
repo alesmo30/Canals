@@ -23,17 +23,9 @@ interface UnsettledPaymentRow {
 }
 
 /**
- * specs/07-hardening-demo.md, R6.2 — run every minute by the worker's
- * scheduler (queue-setup.ts's SCHEDULED_JOBS). Resolves every `payments`
- * row still unsettled past the grace period, through
- * `OrderSettlementService` so it can never race the saga's Phase 3 or the
- * reservation reaper.
- *
- * Acts only on a *definitive* answer — `CAPTURED`/`DECLINED`. `FAILED`
- * (the provider never saw this charge) and `UNKNOWN` are left to the
- * reaper: only it, after the reservation TTL, may conclude "never
- * charged" (Decisions — the two jobs overlap by design on the definitive
- * answers, and diverge on the ambiguous one).
+ * Every minute: settles unsettled payments past the grace period through
+ * OrderSettlementService, acting only on CAPTURED/DECLINED.
+ * See knowledge/messaging-jobs.md#payment-reconciliation
  */
 @Injectable()
 export class PaymentReconciliationHandler implements JobHandler<
@@ -71,11 +63,9 @@ export class PaymentReconciliationHandler implements JobHandler<
   }
 
   /**
-   * Selection only — this transaction commits (and its `FOR UPDATE` lock
-   * releases) the moment the query returns; `OrderSettlementService`
-   * re-locks and re-checks each order's status itself, in its own
-   * transaction, once this method's row is actually resolved
-   * (specs/07-hardening-demo.md, same discipline as the reaper).
+   * Selection only: this transaction's FOR UPDATE lock ends when the query
+   * returns. OrderSettlementService re-locks and re-checks each order in its
+   * own transaction.
    */
   private async selectUnsettledPayments(): Promise<UnsettledPaymentRow[]> {
     return this.dataSource.transaction(async (manager) => {
@@ -113,9 +103,8 @@ export class PaymentReconciliationHandler implements JobHandler<
       return;
     }
 
-    // FAILED (never charged) or UNKNOWN: neither is definitive enough for
-    // reconciliation to act on — only the reaper, after the reservation
-    // TTL, may conclude "never charged" (Decisions).
+    // FAILED/UNKNOWN aren't definitive — only the reaper, after the
+    // reservation TTL, may conclude "never charged".
     this.logger.warn({
       event: 'payment reconcile left unresolved',
       orderId: row.order_id,

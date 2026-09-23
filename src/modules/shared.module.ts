@@ -32,23 +32,9 @@ import {
 } from '../domain/ports/geocoding-provider';
 
 /**
- * infrastructure.md §3: "config, TypeORM, pg-boss, all ports — THE SHARED
- * PART". Both ApiModule and WorkerModule import this and nothing else for
- * their infrastructure needs, so the api and the worker share one DI graph
- * shape even though they boot through different entrypoints.
- *
- * P0 wires all three port tokens now so the graph is closed from day one —
- * P2/P3 swap a `useValue` stub for a real `useClass` adapter, they do not
- * add a new provider to this frozen module (specs/01-foundation.md,
- * Decisions).
- *
- * `register(role)` (SPEC 04 step 2): the only thing that differs between
- * the api's and the worker's copy of this module is which `PgBoss`
- * instance they get — everything else stays identical, so the DI graph
- * shape ApiModule/WorkerModule's comment promises still holds. `role` is a
- * structural fact of which entrypoint is booting, not an operator-tunable
- * value, so it is a constructor argument here rather than a new
- * `env.schema.ts` entry (references/coding-conventions.md).
+ * Config, TypeORM, pg-boss and all ports, shared by ApiModule and
+ * WorkerModule. `role` only selects the PgBoss flavour.
+ * See knowledge/architecture.md#shared-module
  */
 
 @Module({})
@@ -58,9 +44,7 @@ export class SharedModule {
       module: SharedModule,
       imports: [
         ConfigModule,
-        // SPEC 03 step 2: every log object — Nest's own logger, pino-http's
-        // request/response logging, and future adapters — runs through
-        // redact() before it is serialised (pinoOptions).
+        // Every log object runs through redact() before serialisation.
         LoggerModule.forRoot({ pinoHttp: pinoOptions }),
         TypeOrmModule.forRootAsync({
           inject: [ConfigService],
@@ -69,8 +53,8 @@ export class SharedModule {
             url: configService.get('DATABASE_URL', { infer: true }),
             entities: PERSISTENCE_ENTITIES,
             synchronize: false,
-            // R0.4/R0.7: migrations run from exactly one place, the one-shot
-            // `migrate` compose service (step 11) — never from the app itself.
+            // Migrations run only from the one-shot migrate service, never
+            // from the app.
             migrationsRun: false,
             logging: false,
           }),
@@ -90,9 +74,8 @@ export class SharedModule {
           useFactory: (
             configService: ConfigService<AppConfig, true>,
           ): GeocodingProvider => {
-            // R2.7 (phases/02-external-adapters.md): the active adapter is
-            // chosen once, here, from the environment variable — no
-            // `if (driver === ...)` anywhere else in application code.
+            // The adapter is chosen once here from env — no driver checks
+            // anywhere else.
             const driver = configService.get('GEOCODING_DRIVER', {
               infer: true,
             });

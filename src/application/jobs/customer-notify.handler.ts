@@ -4,11 +4,7 @@ import { withJobSpan } from './helpers/tracing.helper';
 import { JobHandler } from './job-handler';
 import { OrderConfirmedPayload } from '../../infrastructure/messaging/event-routing';
 
-/**
- * SPEC 04 Scope: "logs a structured 'notification sent' event". No real
- * email sink — nothing leaves the process (Decisions, "The event
- * contract" / "Out of scope").
- */
+/** Logs a structured "notification sent" event; no real email sink — nothing leaves the process. */
 @Injectable()
 export class CustomerNotifyHandler implements JobHandler<OrderConfirmedPayload> {
   readonly queue = 'customer.notify';

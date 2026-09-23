@@ -152,3 +152,20 @@ annotation (`const rows: FooRow[] = await manager.query(...)`), not an
 `as` cast — the cast trips `@typescript-eslint/no-unnecessary-type-assertion`
 once the variable is already annotated, and skips it entirely if it
 isn't.
+
+## Comments
+
+A code comment says what the code cannot: a short *why*, an invariant, or a
+safety warning. Everything longer belongs in `knowledge/`.
+
+- **Keep**: a short why (at most 2–3 lines); invariants and safety warnings
+  (lock order, transaction rules, redaction guarantees, import order); a
+  one-line JSDoc on a public port or exported symbol where it helps;
+  lint/`@ts-*` directives with their reason.
+- **Don't**: spec, phase, step or requirement IDs (`SPEC 04`, `P4`, `R0.6`,
+  `FR-9`, "step 7"); narration of what the next lines visibly do;
+  verification stories, history ("found the hard way", "used to"), or
+  worked examples. Those go to the matching `knowledge/<topic>.md`
+  (index: `knowledge/README.md`).
+- **At most one pointer** per comment, in the form
+  `See knowledge/<topic>.md#<anchor>`, when the full rationale lives there.

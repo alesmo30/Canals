@@ -57,13 +57,6 @@ function chargeResult(overrides: Partial<ChargeResult>): ChargeResult {
   };
 }
 
-/**
- * specs/07-hardening-demo.md, R6.1 — integration test: DATABASE_URL,
- * PAYMENTS_URL and OTEL_EXPORTER_OTLP_ENDPOINT exported, a migrated
- * Postgres reachable. Builds its own expired-reservation fixtures
- * directly (randomUUID-scoped), one per outcome the table in the spec
- * describes.
- */
 describe('ReservationReaperHandler (integration)', () => {
   let boss: PgBoss;
   let paymentGateway: FakePaymentGateway;

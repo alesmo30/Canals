@@ -29,6 +29,11 @@ topic, not preemptively:
 - `references/testing.md` — how `*.integration.spec.ts` files build
   their fixtures.
 
+`knowledge/README.md` is the centralised code knowledge: rationale,
+invariants and investigations behind the code, indexed by file and
+symbol. Read the relevant topic when a comment points there
+(`See knowledge/<topic>.md#<anchor>`).
+
 ## Commands
 
 ```bash

@@ -19,19 +19,9 @@ const DLQ_NAMES = [
 ];
 
 /**
- * SPEC 04 step 8 — requires DATABASE_URL (+ PAYMENTS_URL,
- * OTEL_EXPORTER_OTLP_ENDPOINT for env.schema.ts's validation) exported and
- * a migrated Postgres reachable. Registers its own `MeterProvider` with an
- * `InMemoryMetricExporter` (nothing in a test process ever imports
- * `tracing.ts`) and drives collection on demand via `forceFlush()` instead
- * of waiting out `DLQ_GAUGE_INTERVAL_MS`.
- *
- * `readGaugeByQueue()` is called at most **once** in this whole file:
- * `getQueueStats(name, { force: true })` (`dlq-gauge.ts`) throttles to one
- * real recomputation per queue per 60 s (step 1 finding, hit again here —
- * a second call moments later silently returned the pre-probe snapshot).
- * The baseline instead comes from a plain `count(*)` against `pgboss.job`,
- * which is never throttled.
+ * Own `MeterProvider` + in-memory exporter. `getQueueStats({ force: true })`
+ * is throttled, so it's called once here; the baseline uses `count(*)`.
+ * See knowledge/investigations.md#pgboss-queue-stats-throttle
  */
 describe('DLQ gauge (integration)', () => {
   let boss: PgBoss;
@@ -99,10 +89,8 @@ describe('DLQ gauge (integration)', () => {
     expect(jobId).not.toBeNull();
 
     try {
-      // Deterministically defeat getQueueStats({force:true})'s 60s cache
-      // (step 1 finding) instead of racing it or sleeping for real: back-date
-      // pgboss.queue's own monitor_on so the read below is guaranteed to
-      // see a stale cache and genuinely recompute.
+      // Back-date pgboss.queue.monitor_on to defeat the 60 s stats cache
+      // deterministically.
       await AppDataSource.query(
         `update pgboss.queue set monitor_on = now() - interval '2 minutes' where name = ANY($1)`,
         [DLQ_NAMES],

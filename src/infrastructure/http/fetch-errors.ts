@@ -18,9 +18,8 @@ export function classifyFetchError(error: unknown): FetchErrorKind {
   if (errorCauseCode(error) === 'ECONNREFUSED') {
     return 'connection_refused';
   }
-  // Unknown shapes fall back to network_error — the caller still maps
-  // this to its own UNKNOWN/PROVIDER_UNAVAILABLE-style outcome, so the
-  // fallback is safe (Risks).
+  // Unknown shapes fall back to network_error; callers map that to
+  // UNKNOWN, so the fallback is safe.
   return 'network_error';
 }
 

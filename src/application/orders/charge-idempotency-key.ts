@@ -4,10 +4,8 @@ export interface BuildChargeIdempotencyKeyParams {
 }
 
 /**
- * specs/05-order-creation-saga.md — the value passed as
- * `ChargeCommand.idempotencyKey` (domain/ports/payment-gateway.ts). Pure,
- * no infrastructure dependency — `attempt` is always `1` today (a second
- * charge attempt is out of scope, per SPEC 03's handoff).
+ * Value passed as ChargeCommand.idempotencyKey. `attempt` is always 1 today
+ * (a second charge attempt is out of scope).
  */
 export function buildChargeIdempotencyKey(
   params: BuildChargeIdempotencyKeyParams,

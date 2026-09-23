@@ -1,13 +1,7 @@
 /**
- * SPEC 03: up to `maxAttempts`, full-jitter exponential backoff, retrying
- * only what the caller's `isTransient` predicate marks transient. Used by
- * both `HttpPaymentGateway` and `GeoapifyGeocodingProvider`, each with its
- * own predicate and its own `circuit-breaker.ts` instance.
- *
- * `CircuitOpenError` (circuit-breaker.ts) needs no special case here: a
- * caller's `isTransient` simply returns `false` for it, and "not transient"
- * already means an immediate return with no further attempt and no delay —
- * which is exactly the early exit the breaker requires.
+ * Full-jitter exponential backoff, retrying only what the caller's
+ * `isTransient` marks transient. `CircuitOpenError` needs no special case:
+ * not transient means immediate return.
  */
 export const MAX_ATTEMPTS = 3;
 export const BACKOFF_BASE_MS = 200;
