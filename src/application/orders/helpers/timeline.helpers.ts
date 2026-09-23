@@ -68,11 +68,17 @@ export function toMovementEvent(
   row: InventoryMovementTimelineRow,
 ): TimelineEvent {
   const quantity = Math.abs(row.quantity_delta);
+  // A COMMIT only moves reserved stock to sold: quantity_delta on
+  // `available` is 0, so "Committed 0 ×" would read as nothing happened.
+  const what =
+    quantity > 0
+      ? `${quantity} × ${row.product_sku}`
+      : `reservation of ${row.product_sku}`;
   return {
     at: row.created_at,
     phase: row.type === 'RESERVE' ? 'RESERVE' : 'SETTLE',
     kind: `INVENTORY_${row.type}`,
-    title: `${MOVEMENT_VERB[row.type]} ${quantity} × ${row.product_sku} at ${row.warehouse_name}`,
+    title: `${MOVEMENT_VERB[row.type]} ${what} at ${row.warehouse_name}`,
     outcome: row.type === 'RELEASE' ? 'FAILED' : 'OK',
     detail: {
       sku: row.product_sku,

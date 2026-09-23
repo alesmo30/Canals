@@ -269,11 +269,13 @@ export function ProblemCard({ problem }: { problem: ProblemDetails }) {
             <Box>
               <Mono>{problem.orderId}</Mono>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                The order exists — do not retry with a new Idempotency-Key. Poll{' '}
+                {problem.status === 502
+                  ? 'The order exists and its payment is unresolved — do not retry with a new Idempotency-Key. Poll '
+                  : 'The declined order exists (PAYMENT_FAILED, stock released). Inspect it with '}
                 <Link component={RouterLink} to="/" state={{ getOrderId: problem.orderId }}>
                   GET /orders/:id
                 </Link>{' '}
-                or watch its lifecycle.
+                or open its lifecycle.
               </Typography>
             </Box>
           </>
