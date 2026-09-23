@@ -51,6 +51,7 @@ describe('toOrderListItem', () => {
       status: row.status,
       warehouseId: row.warehouse_id,
       totalCents: 1000,
+      totalDollars: '10.00',
       currency: row.currency,
       createdAt: '2026-01-15T10:30:00.000Z',
       items: [
@@ -60,6 +61,7 @@ describe('toOrderListItem', () => {
           name: item.product_name_snapshot,
           quantity: item.quantity,
           unitPriceCents: 500,
+          unitPriceDollars: '5.00',
         },
       ],
     });
@@ -86,6 +88,7 @@ describe('toOrderListItem', () => {
         'status',
         'warehouseId',
         'totalCents',
+        'totalDollars',
         'currency',
         'createdAt',
         'items',

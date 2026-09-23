@@ -52,6 +52,13 @@ export const envSchema = z
           .map((origin) => origin.trim())
           .filter((origin) => origin.length > 0),
       ),
+
+    // Dev-only readability toggle for pino.config.ts — off (raw JSON) by
+    // default so docker-compose containers, which never set it, keep
+    // emitting parseable JSON lines (specs/03-external-adapters.md:334).
+    // z.enum, not z.coerce.boolean(): the latter's `Boolean(str)` treats
+    // any non-empty string — including the literal "false" — as true.
+    LOG_PRETTY: z.enum(['true', 'false']).default('false'),
   })
   .refine(
     (config) =>

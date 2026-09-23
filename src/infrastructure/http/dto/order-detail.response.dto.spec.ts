@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 
+import { formatDistance } from './helpers/distance-format.helper';
 import { toOrderDetailResponse } from './order-detail.response.dto';
 import type { GetOrderResult } from '../../../application/orders/get-order.service';
 import type {
@@ -90,7 +91,7 @@ describe('toOrderDetailResponse', () => {
       warehouse: {
         id: order.warehouse_id,
         name: order.warehouse_name,
-        distanceMeters: order.distance_meters,
+        distance: formatDistance(order.distance_meters as number),
       },
       items: [
         {
@@ -99,6 +100,7 @@ describe('toOrderDetailResponse', () => {
           name: item.product_name_snapshot,
           quantity: item.quantity,
           unitPriceCents: 2000,
+          unitPriceDollars: '20.00',
         },
       ],
       payments: [
@@ -106,6 +108,7 @@ describe('toOrderDetailResponse', () => {
           attempt: 1,
           status: 'CAPTURED',
           amountCents: 2000,
+          amountDollars: '20.00',
           currency: 'USD',
           failureCode: null,
           settledAt: '2026-01-15T10:31:00.000Z',
@@ -120,6 +123,7 @@ describe('toOrderDetailResponse', () => {
         deliveredAt: null,
       },
       totalCents: 2000,
+      totalDollars: '20.00',
       currency: order.currency,
       createdAt: order.created_at.toISOString(),
     });
@@ -191,6 +195,7 @@ describe('toOrderDetailResponse', () => {
         'attempt',
         'status',
         'amountCents',
+        'amountDollars',
         'currency',
         'failureCode',
         'settledAt',

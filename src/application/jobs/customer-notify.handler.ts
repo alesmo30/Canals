@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { withJobSpan } from './helpers/tracing.helper';
 import { JobHandler } from './job-handler';
 import { OrderConfirmedPayload } from '../../infrastructure/messaging/event-routing';
 
@@ -14,11 +15,17 @@ export class CustomerNotifyHandler implements JobHandler<OrderConfirmedPayload> 
   private readonly logger = new Logger(CustomerNotifyHandler.name);
 
   handle(payload: OrderConfirmedPayload): Promise<void> {
-    this.logger.log({
-      event: 'notification sent',
-      queue: this.queue,
-      orderId: payload.orderId,
-    });
-    return Promise.resolve();
+    return withJobSpan(
+      'notify customer',
+      () => {
+        this.logger.log({
+          event: 'notification sent',
+          queue: this.queue,
+          orderId: payload.orderId,
+        });
+        return Promise.resolve();
+      },
+      { 'app.order_id': payload.orderId },
+    );
   }
 }

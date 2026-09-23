@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
+import { withJobSpan } from './helpers/tracing.helper';
 import { JobHandler } from './job-handler';
 import {
   OrderSettlementService,
@@ -49,10 +50,15 @@ export class PaymentReconciliationHandler implements JobHandler<
   ) {}
 
   async handle(): Promise<void> {
-    const rows = await this.selectUnsettledPayments();
+    const rows = await withJobSpan('select unsettled payments', () =>
+      this.selectUnsettledPayments(),
+    );
     for (const row of rows) {
       try {
-        await this.resolvePayment(row);
+        await withJobSpan('resolve payment', () => this.resolvePayment(row), {
+          'app.order_id': row.order_id,
+          'app.payment_id': row.id,
+        });
       } catch (error) {
         this.logger.warn({
           event: 'payment reconcile failed',
