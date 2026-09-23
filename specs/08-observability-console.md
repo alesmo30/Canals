@@ -63,8 +63,8 @@ export type TimelinePhase =
   | 'RESERVE'       // order inserted + inventory RESERVE
   | 'CHARGE'        // payment attempts
   | 'SETTLE'        // COMMIT/RELEASE + CONFIRMED/PAYMENT_FAILED/CANCELLED
-  | 'FULFILMENT'    // shipment row
-  | 'JOBS';         // pg-boss jobs (shipment.create, customer.notify, analytics.record, *.dlq)
+  | 'JOBS'          // pg-boss jobs (shipment.create, customer.notify, analytics.record, *.dlq)
+  | 'FULFILMENT';   // shipment row — after JOBS: it is written by the shipment.create job
 
 export type TimelineOutcome = 'OK' | 'PENDING' | 'FAILED';
 
