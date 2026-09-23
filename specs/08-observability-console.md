@@ -399,6 +399,7 @@ before the step summary.
 | pg-boss internal schema can change between majors (v12 has no `archive`, earlier versions did). | Query pinned to the installed 12.x shape; integration test in step 2 fails loudly on a schema change. |
 | Hardcoded catalogue drifts from `seed.ts`. | `catalog.ts` header comment points to `seed.ts`, `us-cities.ts` and `payments-mock/src/constants.ts` as sources of truth. |
 | Card `4000000000080004` hangs 30 s in the mock; the API returns `502` after ~6 s. | Console shows a spinner with "provider timeout expected" and does not block other requests. |
+| `orders.created_at` is not the insert time: `order.mapper.ts` (SPEC 05) writes `createdAt: new Date()` on **every** save, so after settlement it equals `updated_at`. Found in step 4's e2e (declined order showed ORDER_CREATED after the payment). | The timeline dates `ORDER_CREATED` from the first `RESERVE` movement (same transaction as the order insert), falling back to `created_at`. The mapper itself is SPEC 05's file and also feeds `GET /orders` keyset ordering — flagged to the user, not fixed here. |
 | Worker not running → jobs stay `created`, shipment never appears. | Timeline shows them as PENDING; README tells the reviewer to `docker compose up worker`. |
 
 ## What is **not** in this spec

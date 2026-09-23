@@ -65,8 +65,13 @@ export class GetOrderTimelineService {
       events.push(toIdempotencyEvent(idempotency));
     }
 
+    // orders.created_at is not trustworthy as an insert time: the order
+    // mapper rewrites it with `new Date()` on every save (settlement
+    // included). The order row is inserted in the same transaction as its
+    // RESERVE movements, so the first RESERVE is the real creation instant.
+    const firstReserve = movements.find((row) => row.type === 'RESERVE');
     events.push({
-      at: order.created_at,
+      at: firstReserve?.created_at ?? order.created_at,
       phase: 'RESERVE',
       kind: 'ORDER_CREATED',
       title: 'Order created (PENDING_PAYMENT)',

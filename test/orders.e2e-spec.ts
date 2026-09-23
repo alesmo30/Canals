@@ -7,6 +7,7 @@ import { App } from 'supertest/types';
 
 import { ApiModule } from '../src/modules/api.module';
 import type { OrderResponse } from '../src/infrastructure/http/dto/order-response.dto';
+import type { OrderTimelineResponse } from '../src/infrastructure/http/dto/order-timeline.response.dto';
 import type { ProblemDetails } from '../src/infrastructure/http/filters/problem-details.filter';
 import { AppDataSource } from '../src/infrastructure/database/data-source';
 import { CustomerOrmEntity } from '../src/infrastructure/database/entities/customer.orm-entity';
@@ -26,6 +27,9 @@ function asOrder(body: unknown): OrderResponse {
 }
 function asProblem(body: unknown): ProblemDetails {
   return body as ProblemDetails;
+}
+function asTimeline(body: unknown): OrderTimelineResponse {
+  return body as OrderTimelineResponse;
 }
 
 /**
@@ -395,5 +399,66 @@ describe('POST /orders (e2e)', () => {
       .expect(422);
 
     expect(asProblem(res.body).status).toBe(422);
+  });
+
+  it('GET /orders/:id/timeline: a confirmed order shows idempotency → reserve → charge → settle, with no card data', async () => {
+    const { productId } = await makeFixture();
+
+    const created = await request(app.getHttpServer())
+      .post('/orders')
+      .set('Idempotency-Key', randomUUID())
+      .send(validBody(productId))
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .get(`/orders/${asOrder(created.body).id}/timeline`)
+      .expect(200);
+
+    const timeline = asTimeline(res.body);
+    expect(timeline.status).toBe('CONFIRMED');
+    const phases = new Set(timeline.events.map((event) => event.phase));
+    for (const phase of ['IDEMPOTENCY', 'RESERVE', 'CHARGE', 'SETTLE']) {
+      expect(phases.has(phase as never)).toBe(true);
+    }
+    const kinds = timeline.events.map((event) => event.kind);
+    expect(kinds.indexOf('INVENTORY_COMMIT')).toBeLessThan(
+      kinds.indexOf('ORDER_CONFIRMED'),
+    );
+    const json = JSON.stringify(res.body);
+    expect(json).not.toContain(APPROVED_CARD);
+    expect(json).not.toContain('raw_response');
+  });
+
+  it('GET /orders/:id/timeline: a declined order ends in RELEASE + PAYMENT_FAILED', async () => {
+    const { productId, warehouseId } = await makeFixture();
+
+    await request(app.getHttpServer())
+      .post('/orders')
+      .set('Idempotency-Key', randomUUID())
+      .send(validBody(productId, { payment: { cardNumber: DECLINED_CARD } }))
+      .expect(402);
+    const [order] = await AppDataSource.getRepository(OrderOrmEntity).find({
+      where: { warehouseId },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get(`/orders/${order.id}/timeline`)
+      .expect(200);
+
+    const timeline = asTimeline(res.body);
+    expect(timeline.correlationId).toEqual(expect.any(String));
+    expect(timeline.events.slice(-2).map((event) => event.kind)).toEqual([
+      'INVENTORY_RELEASE',
+      'ORDER_PAYMENT_FAILED',
+    ]);
+  });
+
+  it('GET /orders/:id/timeline: an unknown or malformed id is 404', async () => {
+    await request(app.getHttpServer())
+      .get(`/orders/${randomUUID()}/timeline`)
+      .expect(404);
+    await request(app.getHttpServer())
+      .get('/orders/not-a-uuid/timeline')
+      .expect(404);
   });
 });

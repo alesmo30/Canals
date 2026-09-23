@@ -159,10 +159,14 @@ describe('GetOrderTimelineService', () => {
   });
 
   it('declined path: RESERVE → payment FAILED → RELEASE → PAYMENT_FAILED', async () => {
+    // created_at == updated_at == settle time: the order mapper rewrites
+    // created_at on every save, so the service must date ORDER_CREATED
+    // from the first RESERVE movement instead.
     const order = makeOrder({
       status: 'PAYMENT_FAILED',
       confirmed_at: null,
-      updated_at: at(3),
+      created_at: at(4),
+      updated_at: at(4),
     });
     const { service } = makeService({
       order,
@@ -179,6 +183,7 @@ describe('GetOrderTimelineService', () => {
       ['INVENTORY_RELEASE', 'FAILED'],
       ['ORDER_PAYMENT_FAILED', 'FAILED'],
     ]);
+    expect(events[0].at).toEqual(at(1));
   });
 
   it('an UNKNOWN payment leaves a PENDING attempt and an awaiting-settlement event', async () => {

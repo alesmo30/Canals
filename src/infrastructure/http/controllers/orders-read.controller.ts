@@ -10,6 +10,11 @@ import {
   OrderListResponse,
   toOrderListResponse,
 } from '../dto/order-list.response.dto';
+import {
+  OrderTimelineResponse,
+  toOrderTimelineResponse,
+} from '../dto/order-timeline.response.dto';
+import { GetOrderTimelineService } from '../../../application/orders/get-order-timeline.service';
 import { GetOrderService } from '../../../application/orders/get-order.service';
 import { ListOrdersService } from '../../../application/orders/list-orders.service';
 
@@ -23,6 +28,7 @@ export class OrdersReadController {
   constructor(
     private readonly listOrdersService: ListOrdersService,
     private readonly getOrderService: GetOrderService,
+    private readonly getOrderTimelineService: GetOrderTimelineService,
   ) {}
 
   /**
@@ -43,6 +49,23 @@ export class OrdersReadController {
   ): Promise<OrderListResponse> {
     const result = await this.listOrdersService.execute(query);
     return toOrderListResponse(result);
+  }
+
+  /**
+   * specs/08-observability-console.md — the order's lifecycle as ordered
+   * events. `:id/timeline` is more specific than `:id`, so the two never
+   * collide.
+   */
+  @Get(':id/timeline')
+  @ApiResponse({
+    status: 200,
+    description:
+      'Lifecycle events: idempotency, reservation, payments, settlement, jobs, shipment.',
+  })
+  @ApiResponse({ status: 404, description: 'No order with this id.' })
+  async timeline(@Param('id') id: string): Promise<OrderTimelineResponse> {
+    const result = await this.getOrderTimelineService.execute(id);
+    return toOrderTimelineResponse(result);
   }
 
   @Get(':id')
