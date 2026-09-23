@@ -11,7 +11,7 @@ Order management API for an online store that sells Apple products. It creates o
 > **Technical documentation**
 >
 > The **Canals Technical Guide** (architecture, the full execution path of an order, and every design decision with its trade-offs) is available as **HTML and PDF** here:
-> **[Google Drive: Canals technical guide](https://drive.google.com/drive/folders/1Oszyk632ON4OGZTx8MmNBXFyeSnCCUvi?usp=sharing)** (**Must take a look**)
+> **[Google Drive: Canals technical guide]([https://drive.google.com/drive/folders/1Oszyk632ON4OGZTx8MmNBXFyeSnCCUvi?usp=sharing](https://drive.google.com/drive/folders/1BcelwGK2HCKOpLQbSVOxqGR91umWYFl2?usp=sharing))** (**Must take a look**)
 >
 > The same Drive folder also has a **Postman collection (JSON)**: import it into Postman to run every endpoint and failure scenario without writing `curl` by hand.
 >
