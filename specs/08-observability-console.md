@@ -48,7 +48,7 @@
 - Querying Tempo/Loki from the browser. The console links out to
   Grafana Explore instead.
 - DLQ replay, job retry buttons or any write beyond `POST /orders`.
-- Adding the console to `npm run verify`, CI or docker-compose.
+- Adding the console to `npm run verify` or CI.
 - Any change to SPEC 05/06 files beyond an additive route in
   `orders-read.controller.ts`, additive methods on
   `OrdersReadRepository`, one additive `enableCors` option and the
@@ -344,6 +344,14 @@ before the step summary.
 11. **README "Console" section + root `web:dev`/`web:build` scripts.**
     *Verify:* fresh-clone instructions run as written.
 
+12. **Console in docker-compose** (added after review, user request):
+    `web/Dockerfile` (Node build → `nginx:alpine`), `web/nginx.conf` (SPA
+    fallback to `index.html`), service `web` on host port `5173`; root
+    `.dockerignore` excludes `web/` from the api image's context.
+    *Verify:* `docker compose up -d --build` → `/`, `/executions/<id>`
+    return 200 from nginx; a POST from the console at :5173 reaches the
+    api and its lifecycle renders.
+
 ## Acceptance criteria
 
 - [x] Browser JS can read `X-Correlation-Id` from API responses.
@@ -393,6 +401,11 @@ before the step summary.
   one MUI theme (`theme.ts`); no per-component hex.
 - **No:** copying the site's logo or images. A generic wave icon +
   wordmark is enough for a local demo tool.
+- **Yes (changed after review):** the console ships in docker-compose as a
+  static nginx container on `:5173`, so `docker compose up -d --build`
+  brings up the whole demo, console included. `npm run web:dev` stays for
+  hot-reload work. `:5173` is kept as the host port because it is the
+  origin `CORS_ORIGINS` allows.
 - **Yes:** `web/` is its own npm package, not part of root `verify`/CI.
   It is a demo tool; its build must not gate backend changes.
 - **Yes (changed during implementation):** the `402` payment-declined
@@ -423,4 +436,4 @@ before the step summary.
 - Auth, multiple customers, catalogue endpoints.
 - Grafana/Tempo embedding or a trace proxy.
 - DLQ replay or any job-management action.
-- Packaging the console in docker-compose or CI.
+- Running the console in CI.

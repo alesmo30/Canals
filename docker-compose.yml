@@ -81,6 +81,15 @@ services:
       seed: { condition: service_completed_successfully }
       payments-mock: { condition: service_healthy }
 
+  # SPEC 08: the Canals Console (web/). Static bundle behind nginx; the
+  # browser talks to the api on :3000, so :5173 must stay the host port
+  # (it's the origin CORS_ORIGINS allows).
+  web:
+    build: ./web
+    ports: ['5173:80']
+    depends_on:
+      api: { condition: service_started }
+
   worker:
     build: .
     command: node dist/main.worker.js

@@ -57,11 +57,12 @@ docker compose up -d --build
 curl http://localhost:3000/health     # {"status":"ok","info":{},"error":{},"details":{}}
 ```
 
-Compose starts Postgres, runs the migrations and the seed as one-shot containers, then starts the api, the worker and the payments mock. The first boot takes 30 to 60 seconds. Use `--build` after every pull: `docker compose up` alone reuses the old image.
+Compose starts Postgres, runs the migrations and the seed as one-shot containers, then starts the api, the worker, the payments mock and the Canals Console (`web`). The first boot takes 30 to 60 seconds. Use `--build` after every pull: `docker compose up` alone reuses the old image.
 
 | Port | Service | What is there |
 |---|---|---|
 | `3000` | `api` | the HTTP API and the OpenAPI UI at [`/docs`](http://localhost:3000/docs) |
+| `5173` | `web` | the Canals Console — drive and observe the API from a browser (see [below](#canals-console--drive-and-observe-the-api-from-a-browser)) |
 | `4000` | `payments-mock` | the fake payment provider |
 | `5432` | `postgres` | PostgreSQL 16 + PostGIS 3.4 |
 | `3001` | `lgtm` | Grafana (Tempo traces), no login |
@@ -98,10 +99,18 @@ than `curl`: guided forms for the three order requests, every execution
 logged, and a visual lifecycle of each order from idempotency check to the
 worker's fan-out jobs (`specs/08-observability-console.md`).
 
+It is part of the compose stack — `docker compose up -d --build` serves it
+at **http://localhost:5173** (a static build behind nginx). The browser
+calls the api on `:3000` directly; `:5173` is the origin the api's
+`CORS_ORIGINS` allows, so keep that host port.
+
+To work on the console itself with hot reload instead (stop the `web`
+container first — both use `:5173`):
+
 ```bash
-docker compose up -d        # the API must be reachable on :3000 (CORS allows :5173)
+docker compose stop web
 npm run web:install         # once — web/ is its own npm package
-npm run web:dev             # http://localhost:5173
+npm run web:dev             # Vite dev server on http://localhost:5173
 ```
 
 - **Console** (`/`) — pick `POST /orders`, `GET /orders` or
