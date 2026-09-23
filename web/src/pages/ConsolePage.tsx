@@ -14,7 +14,13 @@ import { execute } from '../api/client';
 import type { OrderListResponse } from '../api/types';
 import { MethodChip } from '../components/chips';
 import { GetOrderForm } from '../components/forms/GetOrderForm';
+import { CreateOrderForm } from '../components/forms/CreateOrderForm';
 import { ListOrdersForm } from '../components/forms/ListOrdersForm';
+import {
+  toCreateOrderBody,
+  toCreateOrderHeaders,
+  type CreateOrderValues,
+} from '../lib/create-order-body';
 import { toListQuery, type ListOrdersValues } from '../lib/list-orders-query';
 import { PageHeader } from '../components/PageHeader';
 import { ResponseView } from '../components/ResponseView';
@@ -28,16 +34,26 @@ interface LocationState {
   getOrderId?: string;
 }
 
+/**
+ * Keyed on the navigation entry so a link that lands here with
+ * `state.getOrderId` (e.g. from a 502 problem card) starts a fresh view
+ * pre-filled on GET /orders/:id.
+ */
 export function ConsolePage() {
-  const baseUrl = useBaseUrl();
   const location = useLocation();
   const prefillOrderId = (location.state as LocationState | null)?.getOrderId;
+  return <ConsoleView key={location.key} prefillOrderId={prefillOrderId} />;
+}
+
+function ConsoleView({ prefillOrderId }: { prefillOrderId?: string }) {
+  const baseUrl = useBaseUrl();
 
   const [kind, setKind] = useState<RequestKind>(
-    prefillOrderId ? 'GET_ORDER' : 'LIST_ORDERS',
+    prefillOrderId ? 'GET_ORDER' : 'CREATE_ORDER',
   );
   const [execution, setExecution] = useState<Execution | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingHint, setLoadingHint] = useState<string | undefined>();
   const [lastListValues, setLastListValues] = useState<ListOrdersValues | null>(null);
 
   const option = REQUEST_OPTIONS.find((candidate) => candidate.kind === kind)!;
@@ -48,6 +64,7 @@ export function ConsolePage() {
       setExecution(await runner());
     } finally {
       setLoading(false);
+      setLoadingHint(undefined);
     }
   };
 
@@ -71,6 +88,25 @@ export function ConsolePage() {
         path: `/orders/${encodeURIComponent(orderId)}`,
       }),
     );
+
+  const createOrder = async (values: CreateOrderValues) => {
+    setLoadingHint(
+      values.cardNumber.endsWith('0004')
+        ? 'Provider timeout expected — the API gives up after ~6 s and answers 502…'
+        : values.cardNumber.endsWith('0003')
+          ? 'Provider error expected — the API retries 3 times before answering 502…'
+          : undefined,
+    );
+    await run(() =>
+      execute({
+        kind: 'CREATE_ORDER',
+        method: 'POST',
+        path: '/orders',
+        headers: toCreateOrderHeaders(values),
+        body: toCreateOrderBody(values),
+      }),
+    );
+  };
 
   const listBody =
     execution?.request.kind === 'LIST_ORDERS' && execution.response.status === 200
@@ -158,14 +194,16 @@ export function ConsolePage() {
             <GetOrderForm disabled={loading} initialOrderId={prefillOrderId} onSubmit={getOrder} />
           )}
           {kind === 'CREATE_ORDER' && (
-            <Typography color="text.secondary">Order form — next step.</Typography>
+            <CreateOrderForm disabled={loading} onSubmit={createOrder} />
           )}
         </SectionCard>
 
+        <Box sx={{ position: { lg: 'sticky' }, top: { lg: 88 } }}>
         <SectionCard title="Response">
           <ResponseView
             execution={execution}
             loading={loading}
+            loadingHint={loadingHint}
             footer={
               listBody && lastListValues ? (
                 <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
@@ -185,6 +223,7 @@ export function ConsolePage() {
             }
           />
         </SectionCard>
+        </Box>
       </Box>
     </>
   );

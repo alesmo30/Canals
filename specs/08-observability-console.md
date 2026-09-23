@@ -215,7 +215,8 @@ app bar: the site's wave glyph approximated with an MUI `Waves` icon +
   `crypto.randomUUID()`, *Regenerate* button, editable (to demo replay /
   `422` on reuse with a different body); optional `X-Correlation-Id`.
 - **POST form** (Formik + Yup mirroring `CreateOrderDto`): recipient,
-  line1/line2, city+state picked from the geocoder's city list, postal
+  line1/line2, city+state picked from the geocoder's city list (plus an
+  "Other city…" free-text option to demo `422 geocoding-failed`), postal
   code, country fixed `US`; items = product select + quantity, add/remove,
   duplicate products blocked; card select showing the expected outcome:
 
@@ -321,7 +322,7 @@ before the step summary.
    panel, confirm dialog.
    *Verify:* Chrome: each of the 4 cards gives the expected status; reuse
    key + same body → replayed response; reuse key + changed body → `422`;
-   MBP16 × 3 → `422`; unknown city blocked client-side.
+   MBP16 × 3 → `422`; "Other city…" (free text, outside the geocoder list) → `422` geocoding-failed.
 
 8. **Executions page.** Table (time, method, path, status, duration,
    order id, correlation id), filters, clear-all, row → detail.
