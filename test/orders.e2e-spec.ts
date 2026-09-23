@@ -294,6 +294,8 @@ describe('POST /orders (e2e)', () => {
     });
     expect(orders).toHaveLength(1);
     expect(orders[0].status).toBe('PAYMENT_FAILED');
+    // SPEC 08: the 402 names the declined order so a client can open it.
+    expect(asProblem(res.body).orderId).toBe(orders[0].id);
 
     const inventory = await AppDataSource.getRepository(
       InventoryOrmEntity,

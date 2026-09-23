@@ -51,7 +51,8 @@
 - Adding the console to `npm run verify`, CI or docker-compose.
 - Any change to SPEC 05/06 files beyond an additive route in
   `orders-read.controller.ts`, additive methods on
-  `OrdersReadRepository` and one additive `enableCors` option.
+  `OrdersReadRepository`, one additive `enableCors` option and the
+  `402` `orderId` extension (step 9).
 
 ## API contract — `GET /orders/:id/timeline`
 
@@ -328,13 +329,19 @@ before the step summary.
    order id, correlation id), filters, clear-all, row → detail.
    *Verify:* Chrome: rows persist across reload; filters work.
 
-9. **Execution detail + Lifecycle.** Request/response sections,
+9. **`orderId` on the `402` problem body.** Added mid-implementation
+   (user decision, see Decisions): `problem-details.filter.ts` sets
+   `orderId` for `PaymentDeclinedError` too.
+   *Verify:* filter unit test and the `402` e2e assert `orderId` equals
+   the declined order's id.
+
+10. **Execution detail + Lifecycle.** Request/response sections,
    `LifecycleTimeline`, refresh, Grafana link.
    *Verify:* Chrome: 4242 order shows full timeline through jobs; 0002
    shows RELEASE + PAYMENT_FAILED; 0004 shows PENDING then (after
    refresh, once the worker reconciles) settled. GIF of the full flow.
 
-10. **README "Console" section + root `web:dev`/`web:build` scripts.**
+11. **README "Console" section + root `web:dev`/`web:build` scripts.**
     *Verify:* fresh-clone instructions run as written.
 
 ## Acceptance criteria
@@ -388,6 +395,14 @@ before the step summary.
   wordmark is enough for a local demo tool.
 - **Yes:** `web/` is its own npm package, not part of root `verify`/CI.
   It is a demo tool; its build must not gate backend changes.
+- **Yes (changed during implementation):** the `402` payment-declined
+  problem now carries `orderId`, like the `502`. SPEC 07 limited it to the
+  `502` because only that case needs polling; the console needs the id to
+  open a declined order's lifecycle (RESERVE → RELEASE → PAYMENT_FAILED),
+  and the order row exists in both cases. Purely additive for clients.
+- **No:** finding the declined order from the console by listing recent
+  `PAYMENT_FAILED` orders in a time window — racy and relies on
+  `created_at`, which the mapper rewrites (Risks).
 - **Yes:** confirmation dialog before `POST` only. `GET`s are safe and
   repeatable; the dialog exists because `POST` creates real orders and
   consumes stock.

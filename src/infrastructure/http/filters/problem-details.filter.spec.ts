@@ -156,7 +156,7 @@ describe('ProblemDetailsFilter', () => {
     expect(body.type).toBe('urn:problem-type:inventory-reservation-conflict');
   });
 
-  it('maps PaymentDeclinedError to 402, without an orderId extension member', () => {
+  it('maps PaymentDeclinedError to 402, carrying the declined order id (SPEC 08)', () => {
     const body = runCatch(
       new PaymentDeclinedError({
         orderId: 'order-1',
@@ -165,7 +165,7 @@ describe('ProblemDetailsFilter', () => {
     );
 
     expect(body.status).toBe(HttpStatus.PAYMENT_REQUIRED);
-    expect(body.orderId).toBeUndefined();
+    expect(body.orderId).toBe('order-1');
   });
 
   it('maps PaymentProviderUnavailableError to 502, carrying orderId and a pending-confirmation detail', () => {

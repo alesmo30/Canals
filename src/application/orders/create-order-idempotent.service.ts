@@ -212,7 +212,7 @@ export class CreateOrderIdempotentService {
       };
 
       // 402 and 502 are thrown only after the order row exists, so order_id
-      // is recorded for both and a replay can point to the order.
+      // is recorded for both; both bodies also carry orderId (SPEC 08).
       const orderId =
         error instanceof PaymentDeclinedError ||
         error instanceof PaymentProviderUnavailableError
