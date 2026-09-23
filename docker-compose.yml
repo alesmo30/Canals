@@ -70,6 +70,8 @@ services:
       DATABASE_URL: postgres://canals:canals@postgres:5432/canals
       PAYMENTS_URL: http://payments-mock:4000
       OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+      # SPEC 08: the console (web/, Vite on 5173) calls the api from the browser.
+      CORS_ORIGINS: http://localhost:3000,http://localhost:5173
       # Switching to Geoapify is two lines in a git-ignored .env:
       # GEOCODING_DRIVER=geoapify
       # GEOAPIFY_API_KEY=<your key>
@@ -78,6 +80,15 @@ services:
     depends_on:
       seed: { condition: service_completed_successfully }
       payments-mock: { condition: service_healthy }
+
+  # SPEC 08: the Canals Console (web/). Static bundle behind nginx; the
+  # browser talks to the api on :3000, so :5173 must stay the host port
+  # (it's the origin CORS_ORIGINS allows).
+  web:
+    build: ./web
+    ports: ['5173:80']
+    depends_on:
+      api: { condition: service_started }
 
   worker:
     build: .

@@ -160,6 +160,11 @@ export function buildProblem(exception: unknown): ProblemShape {
       type: 'urn:problem-type:payment-declined',
       title: 'Payment declined',
       detail: exception.message,
+      // SPEC 08: the declined order exists (PAYMENT_FAILED, stock
+      // released); exposing its id lets a client open its lifecycle
+      // (GET /orders/:id/timeline). Unlike the 502 it is informational —
+      // nothing to poll.
+      orderId: exception.orderId,
     };
   }
 

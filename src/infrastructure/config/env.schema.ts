@@ -37,10 +37,11 @@ export const envSchema = z
 
     RESERVATION_TTL_MINUTES: z.coerce.number().int().positive().default(15),
 
-    // Changes per deployment, so an env var. Comma-separated.
+    // Changes per deployment, so an env var. Comma-separated. Default
+    // includes the console's Vite dev server (SPEC 08).
     CORS_ORIGINS: z
       .string()
-      .default('http://localhost:3000')
+      .default('http://localhost:3000,http://localhost:5173')
       .transform((value) =>
         value
           .split(',')

@@ -1,7 +1,8 @@
 # compiled output
 /dist
 /node_modules
-# web/ console (feat/console) build output and deps
+# web/ console build output and deps (also in web/.gitignore; kept here
+# so they stay ignored even if that file is removed or on other branches)
 /web/dist
 /web/node_modules
 *.tsbuildinfo

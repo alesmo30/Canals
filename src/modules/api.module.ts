@@ -8,6 +8,7 @@ import { AllocateInventoryUseCase } from '../application/allocation/allocate-inv
 import { InventoryService } from '../application/allocation/inventory.service';
 import { CreateOrderIdempotentService } from '../application/orders/create-order-idempotent.service';
 import { CreateOrderUseCase } from '../application/orders/create-order.use-case';
+import { GetOrderTimelineService } from '../application/orders/get-order-timeline.service';
 import { GetOrderService } from '../application/orders/get-order.service';
 import { ListOrdersService } from '../application/orders/list-orders.service';
 import { OrderSettlementService } from '../application/orders/order-settlement.service';
@@ -49,6 +50,7 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
     OrdersReadRepository,
     ListOrdersService,
     GetOrderService,
+    GetOrderTimelineService,
     { provide: APP_FILTER, useClass: ProblemDetailsFilter },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],

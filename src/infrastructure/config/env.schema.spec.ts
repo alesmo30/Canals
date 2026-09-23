@@ -15,7 +15,10 @@ describe('validateEnv', () => {
     expect(config.GEOCODING_DRIVER).toBe('static');
     expect(config.PGBOSS_POLL_INTERVAL_SECONDS).toBe(15);
     expect(config.RESERVATION_TTL_MINUTES).toBe(15);
-    expect(config.CORS_ORIGINS).toEqual(['http://localhost:3000']);
+    expect(config.CORS_ORIGINS).toEqual([
+      'http://localhost:3000',
+      'http://localhost:5173',
+    ]);
   });
 
   it('splits and trims a comma-separated CORS_ORIGINS', () => {

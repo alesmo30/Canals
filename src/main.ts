@@ -53,7 +53,13 @@ async function bootstrap() {
   const corsOrigins = app
     .get<ConfigService<AppConfig, true>>(ConfigService)
     .get('CORS_ORIGINS', { infer: true });
-  app.enableCors({ origin: corsOrigins, methods: ['GET', 'POST'] });
+  // exposedHeaders: X-Correlation-Id isn't CORS-safelisted, so the
+  // console's fetch() couldn't read it otherwise (SPEC 08).
+  app.enableCors({
+    origin: corsOrigins,
+    methods: ['GET', 'POST'],
+    exposedHeaders: ['X-Correlation-Id'],
+  });
   // Registered before listen() so it replaces, rather than stacks on,
   // the express adapter's default json parser.
   app.useBodyParser('json', { limit: BODY_LIMIT });

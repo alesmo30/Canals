@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import type { OrderStatus } from '../../../domain/enum-types/order-status';
 import type { PaymentStatus } from '../../../domain/enum-types/payment-status';
 import type { ShipmentStatus } from '../../../domain/enum-types/shipment-status';
+import { QUEUE_TOPOLOGY } from '../../messaging/queue-setup';
 
 export interface OrderRow {
   id: string;
@@ -64,6 +65,60 @@ export interface ShipmentRow {
   dispatched_at: Date | null;
   delivered_at: Date | null;
 }
+
+/** specs/08-observability-console.md — the order columns the lifecycle timeline reads. */
+export interface TimelineOrderRow {
+  id: string;
+  order_number: string;
+  status: OrderStatus;
+  created_at: Date;
+  updated_at: Date;
+  reservation_expires_at: Date | null;
+  confirmed_at: Date | null;
+  cancelled_at: Date | null;
+  cancellation_reason: string | null;
+}
+
+export interface IdempotencyRecordRow {
+  state: 'IN_PROGRESS' | 'COMPLETED';
+  response_status: number | null;
+  created_at: Date;
+  /** Only error bodies (ProblemDetails) carry it — null for a 201. */
+  correlation_id: string | null;
+}
+
+export interface InventoryMovementTimelineRow {
+  type: 'RESERVE' | 'RELEASE' | 'COMMIT' | 'RESTOCK' | 'ADJUST';
+  quantity_delta: number;
+  available_after: number;
+  reserved_after: number;
+  reason: string | null;
+  created_at: Date;
+  product_sku: string;
+  warehouse_name: string;
+}
+
+export interface OrderJobRow {
+  id: string;
+  queue: string;
+  state: 'created' | 'retry' | 'active' | 'completed' | 'cancelled' | 'failed';
+  retry_count: number;
+  retry_limit: number;
+  created_on: Date;
+  started_on: Date | null;
+  completed_on: Date | null;
+  correlation_id: string | null;
+}
+
+/**
+ * Every queue an `order.confirmed` fan-out job (or its dead-letter copy)
+ * can live in. Derived from QUEUE_TOPOLOGY rather than re-listed, and
+ * passed as `name = ANY($2)` so Postgres prunes `pgboss.job`'s
+ * `LIST (name)` partitions before the JSON predicate runs.
+ */
+const ORDER_JOB_QUEUES: readonly string[] = QUEUE_TOPOLOGY.flatMap(
+  ({ queue, deadLetter }) => [queue, deadLetter],
+);
 
 const ORDER_ROW_COLUMNS =
   'id, order_number, customer_id, warehouse_id, status, currency, total_cents, created_at';
@@ -183,5 +238,78 @@ export class OrdersReadRepository {
     );
 
     return rows[0] ?? null;
+  }
+
+  async findTimelineOrderById(id: string): Promise<TimelineOrderRow | null> {
+    const rows: TimelineOrderRow[] = await this.dataSource.query(
+      `SELECT id, order_number, status, created_at, updated_at,
+              reservation_expires_at, confirmed_at, cancelled_at,
+              cancellation_reason
+       FROM orders
+       WHERE id = $1`,
+      [id],
+    );
+
+    return rows[0] ?? null;
+  }
+
+  /**
+   * `order_id` is only set once the saga has inserted the order, so a
+   * request rejected before that (404/422 at resolve/reserve) has no row
+   * here — the timeline simply has no IDEMPOTENCY event for it.
+   */
+  async findIdempotencyRecordByOrderId(
+    orderId: string,
+  ): Promise<IdempotencyRecordRow | null> {
+    const rows: IdempotencyRecordRow[] = await this.dataSource.query(
+      `SELECT state, response_status, created_at,
+              response_body->>'correlationId' AS correlation_id
+       FROM idempotency_keys
+       WHERE order_id = $1
+       ORDER BY created_at ASC
+       LIMIT 1`,
+      [orderId],
+    );
+
+    return rows[0] ?? null;
+  }
+
+  async findInventoryMovementsByOrderId(
+    orderId: string,
+  ): Promise<InventoryMovementTimelineRow[]> {
+    const rows: InventoryMovementTimelineRow[] = await this.dataSource.query(
+      `SELECT m.type, m.quantity_delta, m.available_after, m.reserved_after,
+              m.reason, m.created_at,
+              p.sku AS product_sku, w.name AS warehouse_name
+       FROM inventory_movements m
+       JOIN products p ON p.id = m.product_id
+       JOIN warehouses w ON w.id = m.warehouse_id
+       WHERE m.order_id = $1
+       ORDER BY m.created_at ASC, m.id ASC`,
+      [orderId],
+    );
+
+    return rows;
+  }
+
+  /**
+   * specs/08-observability-console.md, Data sources — pg-boss 12 keeps
+   * completed/failed jobs and DLQ copies in `pgboss.job` itself (no
+   * `archive` table). Only the columns the timeline shows are selected:
+   * never `data`/`output`, so no payload reaches the response by accident.
+   */
+  async findJobsByOrderId(orderId: string): Promise<OrderJobRow[]> {
+    const rows: OrderJobRow[] = await this.dataSource.query(
+      `SELECT id, name AS queue, state, retry_count, retry_limit,
+              created_on, started_on, completed_on,
+              data->'meta'->>'correlationId' AS correlation_id
+       FROM pgboss.job
+       WHERE name = ANY($2::text[])
+         AND data->'payload'->>'orderId' = $1
+       ORDER BY created_on ASC, name ASC`,
+      [orderId, ORDER_JOB_QUEUES],
+    );
+
+    return rows;
   }
 }
