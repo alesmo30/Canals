@@ -1,6 +1,6 @@
 # SPEC 08 — Canals Console: guided request runner + order lifecycle view
 
-> **Status:** Approved
+> **Status:** Implemented
 > **Depends on:** SPEC 04 (pg-boss queues, `X-Correlation-Id`), SPEC 05
 > (`POST /orders`, idempotency, saga), SPEC 06 (`GET /orders`,
 > `GET /orders/:id`, `OrdersReadRepository`)
@@ -346,13 +346,13 @@ before the step summary.
 
 ## Acceptance criteria
 
-- [ ] Browser JS can read `X-Correlation-Id` from API responses.
-- [ ] `GET /orders/:id/timeline` returns ordered events covering idempotency, reservation, every payment attempt, settlement, shipment and every fan-out/DLQ job for the order.
-- [ ] The timeline response contains no card data, `raw_response`, or raw pg-boss `data`.
-- [ ] Each of the four test cards can be sent from the console without typing JSON, and the result matches the card's stated outcome.
-- [ ] Every request sent from the console appears in Executions, survives a reload, and its detail shows URL, params, headers, sent body and received body.
-- [ ] An order's lifecycle is shown as a phase-grouped timeline with success/pending/failure clearly distinguished.
-- [ ] `npm run verify` stays green.
+- [x] Browser JS can read `X-Correlation-Id` from API responses.
+- [x] `GET /orders/:id/timeline` returns ordered events covering idempotency, reservation, every payment attempt, settlement, shipment and every fan-out/DLQ job for the order.
+- [x] The timeline response contains no card data, `raw_response`, or raw pg-boss `data`.
+- [x] Each of the four test cards can be sent from the console without typing JSON, and the result matches the card's stated outcome.
+- [x] Every request sent from the console appears in Executions, survives a reload, and its detail shows URL, params, headers, sent body and received body.
+- [x] An order's lifecycle is shown as a phase-grouped timeline with success/pending/failure clearly distinguished.
+- [x] `npm run verify` stays green — every sub-step passes; `correlation-and-tracing.integration.spec.ts` only when no other worker is attached to the same database (a running `dist/main.worker` steals its jobs; pre-existing, not SPEC 08).
 
 ## Decisions
 

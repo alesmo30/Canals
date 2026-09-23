@@ -97,7 +97,7 @@ describe('CreateOrderIdempotentService (integration) — Fix C order_id recordin
     return { product };
   }
 
-  it('records idempotency_keys.order_id for a 402, without exposing orderId in the stored body', async () => {
+  it('records idempotency_keys.order_id for a 402, and the stored body carries the same orderId (SPEC 08)', async () => {
     const { product } = await makeFixture(2500);
     const idempotencyKey = randomUUID();
     const dto: CreateOrderDto = {
@@ -124,6 +124,8 @@ describe('CreateOrderIdempotentService (integration) — Fix C order_id recordin
     );
     expect(rows).toHaveLength(1);
     expect(rows[0].order_id).not.toBeNull();
-    expect(rows[0].response_body.orderId).toBeUndefined();
+    // SPEC 08 step 9: the 402 body now names the declined order, so a
+    // replay returns it too.
+    expect(rows[0].response_body.orderId).toBe(rows[0].order_id);
   });
 });

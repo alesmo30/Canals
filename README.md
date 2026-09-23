@@ -21,6 +21,7 @@ Built by **Alejandro Estrada Moscoso** ([alejandro.estradam@udea.edu.co](mailto:
 
 - [Features](#features)
 - [Quickstart](#quickstart)
+- [Canals Console](#canals-console--drive-and-observe-the-api-from-a-browser)
 - [Tech stack](#tech-stack)
 - [Architecture](#architecture)
 - [Project structure](#project-structure)
@@ -89,6 +90,42 @@ curl -i -X POST http://localhost:3000/orders \
 You get `201` with `status: "CONFIRMED"` and a `warehouse` object: the iPhone 17 is stocked in Newark, Los Angeles and Miami, and **Los Angeles DC** wins because it is about 180 km from San Diego. Send the same body with the same `Idempotency-Key` again and you get the identical response back, with no second order and no second charge.
 
 To walk through every failure path (declined card, provider timeout, provider down, reaper, duplicates, concurrency), run `npm run demo`.
+
+## Canals Console — drive and observe the API from a browser
+
+`web/` is a small React app (Vite + MUI) for reviewers who'd rather click
+than `curl`: guided forms for the three order requests, every execution
+logged, and a visual lifecycle of each order from idempotency check to the
+worker's fan-out jobs (`specs/08-observability-console.md`).
+
+```bash
+docker compose up -d        # the API must be reachable on :3000 (CORS allows :5173)
+npm run web:install         # once — web/ is its own npm package
+npm run web:dev             # http://localhost:5173
+```
+
+- **Console** (`/`) — pick `POST /orders`, `GET /orders` or
+  `GET /orders/:id`. The order form is pre-filled for the fixed seeded
+  customer; pick a test card to choose the outcome (`4242` → `201`, `0002`
+  → `402`, `0003`/`0004` → `502`), products carry scenario hints (e.g.
+  MacBook Pro 16" × 3 → `422`), and "Other city…" demos a `422`
+  geocoding failure. `Idempotency-Key` is generated for you — untick "New
+  key after each send" to replay one. `POST` asks for confirmation with
+  the exact headers and JSON before sending.
+- **Executions** (`/executions`) — every request sent, with status,
+  duration, order id and `X-Correlation-Id`; stored in the browser's
+  `localStorage` (last 200).
+- **Execution detail** — the request (URL, params, headers, body), the
+  response, and the **order lifecycle** from `GET /orders/:id/timeline`:
+  six phases (Idempotency → Reserve → Charge → Settle → Fan-out jobs →
+  Fulfilment) and a timeline of every event. It refreshes itself while
+  anything is pending, so a `0004` order visibly settles once the
+  reconciliation job runs. "View trace in Grafana" opens Tempo filtered by
+  the request's correlation id.
+
+The API base URL is editable in the top bar (e.g. `http://localhost:3100`
+for a second API instance). A `402`/`502` body carries `orderId`, so
+declined and pending orders have a lifecycle too.
 
 ## Tech stack
 
@@ -252,6 +289,7 @@ npm run payments-check            # the four test cards through the real HTTP ad
 npm run events-check              # order.confirmed → 3 jobs → 1 shipment
 npm run demo                      # ten end-to-end scenarios, exits 0 when all pass
 npm run verify                    # everything above, in the order CI expects
+npm run web:dev / web:build       # the Canals Console (web/) — `npm run web:install` first
 ```
 
 Useful while the stack is running:
