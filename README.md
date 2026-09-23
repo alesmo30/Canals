@@ -13,7 +13,19 @@ Order management API for an online store that sells Apple products. It creates o
 > The **Canals Technical Guide** (architecture, the full execution path of an order, and every design decision with its trade-offs) is available as **HTML and PDF** here:
 > **[Google Drive: Canals technical guide](https://drive.google.com/drive/folders/1Oszyk632ON4OGZTx8MmNBXFyeSnCCUvi?usp=sharing)** (**Must take a look**)
 >
+> The same Drive folder also has a **Postman collection (JSON)**: import it into Postman to run every endpoint and failure scenario without writing `curl` by hand.
+>
 > The live ER diagram is on [dbdiagram.io](https://dbdiagram.io/d/Canalspregunta-6aa9a81baf7c3b0bd1e7b378).
+
+> **Beta: Canals Console (web UI)**
+>
+> A browser console for the API is implemented as a **beta** on the [`feat/console`](https://github.com/alesmo30/Canals/tree/feat/console) branch. It is a small React app (Vite + MUI) for reviewers who would rather click than `curl`:
+>
+> - **Try endpoints in a few clicks.** Guided forms for `POST /orders`, `GET /orders` and `GET /orders/:id`, pre-filled with the seeded customer. Pick a test card to choose the outcome (`4242` → `201`, `0002` → `402`, `0003`/`0004` → `502`); products and cities carry hints for the `422` scenarios. The `Idempotency-Key` is generated for you (or reused, to replay a request).
+> - **Every execution logged.** Status, duration, order id and `X-Correlation-Id` of each request, with the full request and response.
+> - **Request timeline.** A visual lifecycle of each order from the new `GET /orders/:id/timeline` endpoint: Idempotency → Reserve → Charge → Settle → Fan-out jobs → Fulfilment, plus every event in order. It refreshes while anything is pending, so a `0004` order visibly settles when the reconciliation job runs. "View trace in Grafana" opens Tempo filtered by the correlation id.
+>
+> To run it: `git checkout feat/console && docker compose up -d --build`, then open **http://localhost:5173** (the api stays on `:3000`). Details are in that branch's README, section "Canals Console".
 
 Built by **Alejandro Estrada Moscoso** ([alejandro.estradam@udea.edu.co](mailto:alejandro.estradam@udea.edu.co)) as the Canals backend assessment.
 
