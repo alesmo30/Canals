@@ -70,12 +70,13 @@ describe('GET /orders, GET /orders/:id (e2e)', () => {
       createdAt: Date;
       status: OrderStatus;
       warehouseId: string | null;
+      customerId: string;
     }> = {},
   ): Promise<OrderOrmEntity> {
     const createdAt = overrides.createdAt ?? new Date();
     return AppDataSource.getRepository(OrderOrmEntity).save({
       orderNumber: `CNL-T-${randomUUID().slice(0, 20)}`,
-      customerId,
+      customerId: overrides.customerId ?? customerId,
       warehouseId: overrides.warehouseId ?? null,
       status: overrides.status ?? 'PENDING_PAYMENT',
       currency: 'USD',
@@ -343,7 +344,20 @@ describe('GET /orders, GET /orders/:id (e2e)', () => {
   });
 
   it('7: no card data or raw_response is reachable from either GET /orders or GET /orders/:id', async () => {
-    const order = await makeOrder();
+    // Own customer, not the describe-level `customerId` shared with every
+    // other test: the list assertion below scans for the literal "4242"
+    // across ALL of that customer's orders, and by this point in the suite
+    // there are dozens with random UUIDs — one occasionally contains "4242"
+    // by chance, failing the test for a reason that has nothing to do with
+    // card-data leakage. Isolating the customer keeps the list to just this
+    // order.
+    const isolatedCustomer = await AppDataSource.getRepository(
+      CustomerOrmEntity,
+    ).save({
+      email: `${randomUUID()}@example.com`,
+      fullName: 'Orders Read E2E Customer (isolated)',
+    });
+    const order = await makeOrder({ customerId: isolatedCustomer.id });
     await AppDataSource.getRepository(PaymentOrmEntity).save({
       orderId: order.id,
       attempt: 1,
@@ -364,7 +378,7 @@ describe('GET /orders, GET /orders/:id (e2e)', () => {
       .get(`/orders/${order.id}`)
       .expect(200);
     const listRes = await request(app.getHttpServer())
-      .get(`/orders?customerId=${customerId}&pageSize=100`)
+      .get(`/orders?customerId=${isolatedCustomer.id}&pageSize=100`)
       .expect(200);
 
     asOrderDetail(detailRes.body);
