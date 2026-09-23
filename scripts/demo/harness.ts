@@ -11,11 +11,8 @@ import { validateEnv } from '../../src/infrastructure/config/env.schema';
 import { PERSISTENCE_ENTITIES } from '../../src/infrastructure/database/persistence-entities';
 
 /**
- * specs/07-hardening-demo.md, R6.4 — every mechanical piece the ten
- * scenarios (`scenarios.ts`) share: the api's HTTP surface, direct DB
- * access for setup/verification, `docker compose` control, and polling.
- * Nothing here decides a scenario's own expected/actual — that stays in
- * `scenarios.ts` (references/coding-conventions.md).
+ * Mechanical helpers shared by the demo scenarios (HTTP, DB, docker
+ * compose, polling). Each scenario's expectations stay in `scenarios.ts`.
  */
 
 export const API_URL = process.env.API_URL ?? 'http://localhost:3000';
@@ -51,12 +48,9 @@ export interface OrderRequestBody {
 }
 
 /**
- * A `docker compose stop`/`start` a moment earlier can cause the host's
- * own port-forwarding to blip for an instant (observed against this
- * repo's Docker Desktop setup) — a `fetch failed` TypeError with no HTTP
- * response at all, nothing to do with the api or payments-mock
- * themselves. One retry, after a short pause, is enough to ride it out;
- * a real HTTP response (even a 500) is never retried here.
+ * Retries once on a bare `fetch failed` (Docker Desktop port-forward blip
+ * after compose stop/start). A real HTTP response is never retried.
+ * See knowledge/investigations.md#docker-port-blip
  */
 async function fetchWithNetworkBlipRetry(
   input: string,
@@ -274,7 +268,7 @@ export function stopPaymentsMock(): void {
   runComposeCommand(['stop', 'payments-mock']);
 }
 
-/** Restarts payments-mock and waits for its own /health to answer — a fresh container has an empty in-memory charge store (Risks). */
+/** Restarts payments-mock and waits for its /health; a fresh container has an empty in-memory charge store. */
 export async function startPaymentsMockAndWait(
   timeoutMs = 30_000,
 ): Promise<void> {

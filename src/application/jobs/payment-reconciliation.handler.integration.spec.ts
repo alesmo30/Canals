@@ -59,12 +59,6 @@ function chargeResult(overrides: Partial<ChargeResult>): ChargeResult {
   };
 }
 
-/**
- * specs/07-hardening-demo.md, R6.2 — integration test: DATABASE_URL,
- * PAYMENTS_URL and OTEL_EXPORTER_OTLP_ENDPOINT exported, a migrated
- * Postgres reachable. Builds its own unsettled-payment fixtures directly
- * (randomUUID-scoped).
- */
 describe('PaymentReconciliationHandler (integration)', () => {
   let boss: PgBoss;
   let paymentGateway: FakePaymentGateway;

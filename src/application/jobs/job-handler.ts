@@ -1,8 +1,6 @@
 /**
- * SPEC 04 Data model, "Handler contract". Handlers receive `payload` only:
- * `meta` is consumed by the `JobRunner` before they run — the
- * `correlationId` is already in the logging context and the span already
- * open (step 7), so a handler never reads, forwards or knows about it.
+ * Handlers get payload only: JobRunner consumes meta (correlation id, trace
+ * context) before they run.
  */
 export interface JobHandler<TPayload> {
   readonly queue: string;

@@ -1,9 +1,6 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
-/**
- * Mirrors the `idempotency_state` Postgres enum (migration, step 7). Not a
- * domain enum-type: never part of R0.5's frozen list.
- */
+/** Mirrors the idempotency_state enum. Infrastructure-only, not a domain enum. */
 export type IdempotencyState = 'IN_PROGRESS' | 'COMPLETED';
 
 const IDEMPOTENCY_STATE_VALUES: readonly IdempotencyState[] = [
@@ -11,11 +8,7 @@ const IDEMPOTENCY_STATE_VALUES: readonly IdempotencyState[] = [
   'COMPLETED',
 ];
 
-/**
- * Mirrors `idempotency_keys` (migration, step 8). No domain mirror (R0.5):
- * its own mechanics — insert-first, replay on duplicate — live in a small
- * repository (FR-6), not an in-memory domain class.
- */
+/** No domain class: insert-first / replay-on-duplicate lives in idempotency.repository. */
 @Entity('idempotency_keys')
 export class IdempotencyKeyOrmEntity {
   @PrimaryGeneratedColumn('uuid')

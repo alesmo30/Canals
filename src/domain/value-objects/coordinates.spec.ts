@@ -2,7 +2,7 @@ import { Coordinates } from './coordinates';
 
 describe('Coordinates', () => {
   it('holds a valid latitude/longitude pair', () => {
-    // Newark, NJ — one of the seed warehouses (P0's seed script, step 12).
+    // Newark, NJ — one of the seed warehouses.
     const point = Coordinates.of({
       latitude: 40.735657,
       longitude: -74.172363,

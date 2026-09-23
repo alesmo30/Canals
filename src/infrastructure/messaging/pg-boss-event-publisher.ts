@@ -13,10 +13,8 @@ import { EVENT_ROUTING, UnroutedEventError } from './event-routing';
 import { JobBody, JobMeta } from './job-envelope';
 
 /**
- * Injects the active OTel span (if any) into a plain carrier via the
- * globally-registered W3C propagator (`tracing.ts`'s `NodeSDK` registers
- * it), then reads back the `traceparent` field it wrote — `null` when no
- * span is active, matching `JobMeta.traceparent`'s own contract.
+ * The active span's W3C traceparent, via the global propagator; null when
+ * no span is active.
  */
 function captureTraceparent(): string | null {
   const carrier: Record<string, string> = {};
@@ -25,11 +23,9 @@ function captureTraceparent(): string | null {
 }
 
 /**
- * SPEC 04 — replaces P0's no-op `EVENT_PUBLISHER` stub. Implements the
- * frozen `EventPublisher` port unchanged (R0.6): `publish()` looks the event
- * type up in `EVENT_ROUTING` and sends one job per target queue, all
- * through the same `db.executeSql` when `tx` is supplied, so the job
- * inserts commit or roll back with the caller's transaction (FR-9).
+ * publish() looks up EVENT_ROUTING and sends one job per target queue,
+ * through the caller's executeSql when tx is given, so the jobs commit or
+ * roll back with it.
  */
 export class PgBossEventPublisher implements EventPublisher {
   constructor(private readonly boss: PgBoss) {}
@@ -40,10 +36,7 @@ export class PgBossEventPublisher implements EventPublisher {
       throw new UnroutedEventError(event.type);
     }
 
-    // getCorrelationId() reads the AsyncLocalStorage the api's
-    // CorrelationMiddleware (or the JobRunner, when a handler itself
-    // publishes) already populated; a publish from outside any tracked
-    // context (a script) still gets a fresh id rather than "undefined".
+    // Outside any tracked context (e.g. a script) a fresh id is used.
     const meta: JobMeta = {
       correlationId: getCorrelationId() ?? randomUUID(),
       traceparent: captureTraceparent(),
@@ -51,13 +44,8 @@ export class PgBossEventPublisher implements EventPublisher {
     };
     const body: JobBody = { payload: event.payload, meta };
 
-    // TransactionContext stays framework-free and returns `Promise<unknown>`
-    // (domain/ports/event-publisher.ts); this is the one place that knows
-    // pg-boss's own `Db.executeSql` shape (`{ rows }`) and bridges the two.
-    // The port's own doc comment example wires `executeSql` straight to
-    // TypeORM's `EntityManager.query()`, which resolves to the bare rows
-    // array (`PostgresQueryRunner.query()`, `useStructuredResult: false`),
-    // not `{ rows }` — that wrapping happens here.
+    // Bridges the framework-free TransactionContext (TypeORM query()
+    // resolves to bare rows) to pg-boss's Db.executeSql shape ({ rows }).
     const db: Db | undefined = tx
       ? {
           executeSql: async (text: string, values?: unknown[]) => {

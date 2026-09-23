@@ -28,7 +28,7 @@ export interface OrderResponseItem {
   unitPriceDollars: string;
 }
 
-/** specs/05-order-creation-saga.md, Data model — the `201` body's shape. */
+/** The `201` response body. */
 export interface OrderResponse {
   id: string;
   orderNumber: string;
@@ -48,7 +48,7 @@ export interface BuildOrderResponseParams {
   paymentStatus: PaymentStatus;
 }
 
-/** R4.6: the reviewer must see which warehouse was chosen, and why (its name and distance), without opening psql. */
+/** Shows which warehouse was chosen and why (name and distance). */
 export function toOrderResponse(
   params: BuildOrderResponseParams,
 ): OrderResponse {

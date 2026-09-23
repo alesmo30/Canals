@@ -5,7 +5,7 @@ import { Coordinates } from '../../domain/value-objects/coordinates';
 import { ShippingAddress } from '../../domain/value-objects/shipping-address';
 import { buildNormalisedAddress } from './normalisation';
 
-/** No TTL: a static result never changes, and Geoapify's terms permit storing results (Decisions). */
+/** No TTL: static results never change and Geoapify's terms allow storing results. */
 export const GEOCODE_CACHE_MAX_ENTRIES = 10_000;
 
 export interface CachingGeocodingProviderOptions {
@@ -13,21 +13,9 @@ export interface CachingGeocodingProviderOptions {
 }
 
 /**
- * SPEC 03: an in-memory LRU decorator around whichever driver
- * `SharedModule` selects — it caches address -> coordinates only, never
- * warehouse selection or distance, which are recomputed on every order
- * (Decisions). Keyed by `sha256` of the normalised address, excluding
- * `recipient` — two people at one address are at one cache entry.
- *
- * Hand-written with no dependency: a `Map` already iterates in insertion
- * order, so re-inserting a key on every hit (`delete` then `set`) keeps
- * it at the "most recently used" end, and evicting the first key evicts
- * the least recently used one.
- *
- * A failed lookup is never stored: `this.delegate.geocode(address)`
- * rejecting propagates straight out of this method, before the `set()`
- * below ever runs — a Geoapify outage must not mark an address as bad
- * after the provider recovers.
+ * In-memory LRU around the selected driver; caches address → coordinates
+ * only, keyed by sha256 of the normalised address (recipient excluded).
+ * Map insertion order gives LRU. Failures are never cached.
  */
 export class CachingGeocodingProvider implements GeocodingProvider {
   private readonly cache = new Map<string, Coordinates>();

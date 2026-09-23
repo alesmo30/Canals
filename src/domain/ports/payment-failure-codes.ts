@@ -1,8 +1,6 @@
 /**
- * SPEC 03: pins `ChargeResult.failureCode`'s values. Additive, beside the
- * frozen `payment-gateway.ts` port — P4 imports it from here, never from
- * `src/infrastructure/**` (`references/layering.md`: the application layer
- * cannot import infrastructure).
+ * Pins ChargeResult.failureCode values. In the domain so the application
+ * never imports infrastructure.
  */
 export const PAYMENT_FAILURE_CODES = [
   'CARD_DECLINED', // 402 — DECLINED

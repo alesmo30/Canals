@@ -23,13 +23,6 @@ import { WarehouseSelectionRepository } from '../../infrastructure/database/repo
 const DECLINED_CARD_NUMBER = '4000000000000002';
 const TIMEOUT_CARD_NUMBER = '4000000000000004';
 
-/**
- * Integration test — DATABASE_URL, PAYMENTS_URL (`payments-mock`
- * reachable, `docker compose up`) and OTEL_EXPORTER_OTLP_ENDPOINT
- * exported, a migrated Postgres reachable. Builds its own
- * customer/product/warehouse fixtures (randomUUID-scoped), not seed.ts.
- * Exercises all three phases: reserve, charge, settle.
- */
 describe('CreateOrderUseCase (integration) — full saga', () => {
   let boss: PgBoss;
   let useCase: CreateOrderUseCase;
@@ -139,7 +132,7 @@ describe('CreateOrderUseCase (integration) — full saga', () => {
     expect(result.payment.idempotencyKey).toBe(
       `order:${result.order.getId()}:attempt:1`,
     );
-    // SPEC 07: settled_at is set for a definitive outcome.
+    // settled_at is set for a definitive outcome.
     expect(result.payment.settledAt).not.toBeNull();
 
     // Phase 3
@@ -205,7 +198,7 @@ describe('CreateOrderUseCase (integration) — full saga', () => {
       PaymentOrmEntity,
     ).findOneByOrFail({ orderId: orders[0].id });
     expect(persistedPayment.status).toBe('DECLINED');
-    // SPEC 07: settled_at is set for a definitive outcome.
+    // settled_at is set for a definitive outcome.
     expect(persistedPayment.settledAt).not.toBeNull();
   });
 
@@ -240,8 +233,8 @@ describe('CreateOrderUseCase (integration) — full saga', () => {
       PaymentOrmEntity,
     ).findOneByOrFail({ orderId: orders[0].id });
     expect(persistedPayment.status).toBe('UNKNOWN');
-    // SPEC 07: an UNKNOWN outcome leaves settled_at NULL — R6.2's
-    // reconciliation query (`settled_at IS NULL`) is how it finds this row.
+    // UNKNOWN leaves settled_at NULL — that's how reconciliation finds this
+    // row.
     expect(persistedPayment.settledAt).toBeNull();
   }, 15_000);
 });

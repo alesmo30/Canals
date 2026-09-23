@@ -1,9 +1,8 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * SPEC 05: one global counter (not per-year — avoids fragile reset logic).
- * The `CNL-<year>-<6 digits>` format is assembled at generation time in
- * `generateOrderNumber()`, not stored in the sequence itself.
+ * One global counter (no per-year reset). The `CNL-<year>-<6 digits>` format
+ * is built in `generateOrderNumber()`.
  */
 export class OrderNumberSequence1790028652771 implements MigrationInterface {
   name = 'OrderNumberSequence1790028652771';

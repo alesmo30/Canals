@@ -13,10 +13,8 @@ import { InventoryService } from '../application/allocation/inventory.service';
 import { OrderSettlementService } from '../application/orders/order-settlement.service';
 
 /**
- * SharedModule + job handlers (infrastructure.md §3). main.worker.ts's
- * entrypoint (`await app.get(JobRunner).start()`). `JOB_HANDLERS` is a
- * multi-provider array so `JobRunner` stays at 3 constructor parameters
- * (references/coding-conventions.md) instead of one per handler.
+ * SharedModule + job handlers. JOB_HANDLERS is a multi-provider array so
+ * JobRunner stays at 3 constructor parameters.
  */
 @Module({
   imports: [SharedModule.register('worker')],

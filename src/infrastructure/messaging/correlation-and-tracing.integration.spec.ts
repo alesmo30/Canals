@@ -24,12 +24,8 @@ import { JobHandler } from '../../application/jobs/job-handler';
 import { AppDataSource } from '../database/data-source';
 
 /**
- * SPEC 04 step 7 — requires DATABASE_URL (+ PAYMENTS_URL,
- * OTEL_EXPORTER_OTLP_ENDPOINT for env.schema.ts's validation) exported and
- * a migrated Postgres reachable. Registers its own `NodeTracerProvider`
- * with an `InMemorySpanExporter` — the real `tracing.ts` never runs in a
- * test process (nothing here imports `main.ts`/`main.worker.ts`), so
- * nothing else registers a tracer provider or propagator first.
+ * Registers its own `NodeTracerProvider` + `InMemorySpanExporter`;
+ * `tracing.ts` never loads in a test process.
  */
 const FAST_POLLING_INTERVAL_SECONDS = 1;
 const FAST_CONFIG_SERVICE = {
@@ -84,12 +80,8 @@ describe('correlation and tracing (integration)', () => {
     const orderId = randomUUID();
     const observedCorrelationIds: (string | undefined)[] = [];
 
-    // Filtered by this run's own orderId: the same real queue names are
-    // shared with every other *.integration.spec.ts file, some of which
-    // leave a job unconsumed (e.g. pg-boss-event-publisher.integration.spec.ts's
-    // "still enqueues without a tx" case) — an unfiltered handler here
-    // would also observe those leftovers when the whole suite runs
-    // together, not just the job this test itself published.
+    // Filter by this run's orderId: queues are shared with other
+    // integration specs that leave jobs behind.
     const handlers: JobHandler<OrderConfirmedPayload>[] = QUEUE_TOPOLOGY.map(
       ({ queue }) => ({
         queue,
@@ -143,11 +135,8 @@ describe('correlation and tracing (integration)', () => {
       observedCorrelationIds.every((id) => id === requestCorrelationId),
     ).toBe(true);
 
-    // Filtered by this run's own job ids (`messaging.message.id`,
-    // job-runner.ts) — the same real queues are shared with every other
-    // *.integration.spec.ts file, so an unfiltered read here would also
-    // pick up job spans another test's leftover job produced when the
-    // whole suite runs together.
+    // Filter by this run's job ids: queues are shared with other
+    // integration specs that leave jobs behind.
     const jobSpans = exporter
       .getFinishedSpans()
       .filter(

@@ -28,35 +28,19 @@ import {
 } from './scenarios';
 
 /**
- * specs/07-hardening-demo.md, R6.4 — `npm run demo`. Walks every failure
- * path from README.md's own table through a live `api`/`worker`/
- * `payments-mock`/`postgres` stack (`docker compose up`), printing each
- * scenario's expected outcome beside what actually happened, and ends
- * with the log grep (AC 7) — no test card number or secret anywhere in
- * `docker compose logs`.
- *
- * One own fixture (`createFixture`, `INITIAL_STOCK` units), shared by
- * scenarios 1-8; scenario 9 (`concurrency-e2e`) and its own fixture are
- * entirely separate. Every scenario is independently try/caught
- * (`scenarios.ts`'s `run()`) so one failure still lets the rest — and the
- * final summary — run to completion.
+ * `npm run demo`: walks every failure path against a live stack, printing
+ * expected vs actual, and ends with a log grep for card numbers/secrets.
+ * Each scenario is isolated so one failure doesn't stop the rest.
+ * See knowledge/scripts.md#demo
  */
 const INITIAL_STOCK = 10;
 /** Sequential warm-up orders fired before scenario 9's real burst — see warmUpBeforeConcurrency(). */
 const WARMUP_ORDER_COUNT = 3;
 
 /**
- * Scenario 6 just restarted payments-mock (startPaymentsMockAndWait — its
- * own /health answering does not mean the api<->payments-mock path is
- * warm: OTEL instrumentation JIT, the outbound fetch connection pool,
- * payments-mock's own first-request compilation). Firing
- * concurrency-e2e's 5-way-simultaneous burst at that cold path risks one
- * attempt genuinely exceeding ATTEMPT_TIMEOUT_MS (2 s), which alone is
- * enough to trip the shared payments breaker and cascade-fail the others
- * — observed empirically (a `TIMEOUT`, not a `CONNECTION_REFUSED`, and
- * unaffected by an idle sleep in its place; only real traffic warms this
- * up). A few *sequential* real orders exercise the exact same code path
- * concurrency-e2e is about to hit concurrently.
+ * Warms the api→payments-mock path with a few sequential orders so the
+ * concurrent burst doesn't hit cold-start timeouts and trip the shared
+ * breaker. See knowledge/investigations.md#demo-warmup
  */
 async function warmUpBeforeConcurrency(fixture: DemoFixture): Promise<void> {
   for (let i = 0; i < WARMUP_ORDER_COUNT; i++) {

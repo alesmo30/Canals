@@ -1,11 +1,6 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
-/**
- * Mirrors the `inventory_movement_type` Postgres enum (migration, step 7).
- * Not a domain enum-type: this audit ledger has no mirror in
- * src/domain/enum-types/ — it was never part of R0.5's frozen list, unlike
- * order/payment/shipment status and product condition.
- */
+/** Mirrors the inventory_movement_type enum. Infrastructure-only, not a domain enum. */
 export type InventoryMovementType =
   'RESERVE' | 'RELEASE' | 'COMMIT' | 'RESTOCK' | 'ADJUST';
 
@@ -17,19 +12,11 @@ const INVENTORY_MOVEMENT_TYPE_VALUES: readonly InventoryMovementType[] = [
   'ADJUST',
 ];
 
-/**
- * Mirrors `inventory_movements` (migration, step 8) — an append-only
- * ledger, never updated, never deleted (data-model.dbml note). No domain
- * mirror (R0.5): written inside the inventory repository, not an
- * in-memory invariant.
- */
+/** Append-only ledger: never updated, never deleted. */
 @Entity('inventory_movements')
 export class InventoryMovementOrmEntity {
-  // Matches the migration's `bigint GENERATED ALWAYS AS IDENTITY`. TypeORM
-  // returns bigint columns as strings, since a real bigint can exceed
-  // Number.MAX_SAFE_INTEGER — left as string, no bigintNumberTransformer
-  // here: unlike the money columns, this ID has no reason to stay within
-  // safe-integer range.
+  // bigint identity comes back as a string; left as string (no
+  // bigintNumberTransformer): unlike money, this ID can exceed safe-integer range.
   @PrimaryGeneratedColumn('identity', {
     type: 'bigint',
     generatedIdentity: 'ALWAYS',

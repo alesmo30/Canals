@@ -15,8 +15,7 @@ export interface OrderItemProps {
 
 /**
  * Mirrors an `order_items` row. Resolves the N:M between orders and
- * products, and freezes the price and product identity at purchase time
- * (data-model.dbml note).
+ * products, and freezes the price and product identity at purchase time.
  */
 export class OrderItem {
   constructor(private readonly props: OrderItemProps) {
@@ -55,10 +54,7 @@ export class OrderItem {
     return this.props.unitPrice;
   }
 
-  /**
-   * quantity * unitPrice, exact in integer cent arithmetic. Deliberately
-   * not a stored column (data-model.dbml) — always derived.
-   */
+  /** quantity * unitPrice in integer cents. Deliberately not a stored column — always derived. */
   getLineTotal(): Money {
     return this.props.unitPrice.multiply(this.props.quantity);
   }

@@ -3,11 +3,7 @@ export interface OrderCursor {
   id: string;
 }
 
-/**
- * specs/06-read-side.md — raised by `decodeCursor` when the client-supplied
- * cursor is not something this module produced. Mapped to `400`, same
- * bucket as an invalid query param (Decisions).
- */
+/** The cursor wasn't produced by this module. Maps to 400. */
 export class InvalidCursorError extends Error {
   constructor(public readonly cursor: string) {
     super(`Invalid cursor: ${cursor}`);
@@ -15,11 +11,7 @@ export class InvalidCursorError extends Error {
   }
 }
 
-/**
- * specs/06-read-side.md — `base64("${createdAt.toISOString()}|${id}")`.
- * Not JSON: the client only ever reflects this value back, never parses
- * it (Decisions).
- */
+/** base64("<createdAt ISO>|<id>"). Not JSON: clients only echo it back. */
 export function encodeCursor(params: OrderCursor): string {
   return Buffer.from(`${params.createdAt.toISOString()}|${params.id}`).toString(
     'base64',

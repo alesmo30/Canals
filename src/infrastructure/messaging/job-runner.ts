@@ -23,38 +23,19 @@ import { WORKER_READINESS_FILE_PATH } from '../health/worker-readiness';
 import { JOB_HANDLERS, JobHandler } from '../../application/jobs/job-handler';
 
 /**
- * SPEC 04 Decisions, "Correlation and tracing": each job gets its own
- * trace, linked to the publishing span, rather than being a child span of
- * the request — OpenTelemetry's messaging convention. The tracer name is
- * cosmetic (shows up as the instrumentation library in a trace backend).
+ * Each job gets its own trace, linked to the publishing span (OTel
+ * messaging convention). The tracer name is cosmetic.
  */
 const tracer = trace.getTracer('canals-worker');
 
-/**
- * Stays under compose's 30 s `stop_grace_period` (step 10) so Docker never
- * SIGKILLs mid-job (SPEC 04 Decisions, "The worker, its connections and
- * shutdown").
- */
+/** Must stay under compose's 30 s stop_grace_period so Docker never SIGKILLs mid-job. */
 export const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 25_000;
 
 /**
- * Started from `main.worker.ts` (`await app.get(JobRunner).start()`,
- * `infrastructure.md` §3). Registers one `boss.work()` per handler in
- * `JOB_HANDLERS`. For each job: restores `correlationId` into
- * `correlationStorage` (read by the pino `mixin` and by
- * `PgBossEventPublisher` if the handler itself publishes), opens one
- * hand-written `job <queue>` span in its own trace — `root: true`, so it
- * is never accidentally nested under whatever context pg-boss's own fetch
- * loop happens to be running in — linked to the publishing span via the
- * envelope's `traceparent`, and runs the handler with that span active so
- * any `pg` spans the handler produces nest under it instead of appearing
- * as orphans. The handler receives `payload` only — it never sees `meta`.
- * A thrown error is recorded on the span, logged — `queue`, `jobId`,
- * `attempt`, `retryLimit`, `error`, `correlationId` — and re-thrown so
- * pg-boss's own retry/dead-letter transition still runs; this warn line is
- * the per-attempt failure history pg-boss itself does not keep (R3.5).
- * `start()` also registers the DLQ gauge (`dlq-gauge.ts`) — the worker is
- * the only process with a `PgBoss` instance worth sampling.
+ * One boss.work() per handler. Each job runs with its correlationId
+ * restored and inside its own root span; errors are logged per attempt and
+ * re-thrown so pg-boss's retry/DLQ still runs.
+ * See knowledge/messaging-jobs.md#job-runner
  */
 @Injectable()
 export class JobRunner implements OnApplicationShutdown {
@@ -70,12 +51,9 @@ export class JobRunner implements OnApplicationShutdown {
   async start(): Promise<void> {
     registerDlqGauge(this.boss);
 
-    // SPEC 04 step 1 finding: `notify: true` on a queue only changes which
-    // *backstop* poll applies once the LISTEN/NOTIFY listener is up
-    // (`notifyPollingIntervalSeconds`) — the base `pollingIntervalSeconds`
-    // is what's used otherwise. infrastructure.md §7 commits to a 15 s
-    // worst case for a retried or scheduled job regardless of listener
-    // state, so both fields are set here, to the same value.
+    // Both poll intervals set to the same value, so the worst-case pickup
+    // holds with or without LISTEN/NOTIFY.
+    // See knowledge/investigations.md#pgboss-notify-polling
     const pollingIntervalSeconds = this.configService.get(
       'PGBOSS_POLL_INTERVAL_SECONDS',
       { infer: true },
@@ -91,10 +69,8 @@ export class JobRunner implements OnApplicationShutdown {
         },
         async (jobs: JobWithMetadata<JobBody>[]) => {
           const [job] = jobs;
-          // SPEC 07: a scheduled job (reservation.reap, payment.reconcile)
-          // is published via boss.schedule(), not PgBossEventPublisher, so
-          // it is born without meta — there is no publishing request to
-          // restore a correlationId/traceparent from.
+          // Scheduled jobs are born without meta — there's no request to
+          // restore context from.
           const meta: JobMeta = job.data.meta ?? {
             correlationId: randomUUID(),
             traceparent: null,
@@ -126,9 +102,8 @@ export class JobRunner implements OnApplicationShutdown {
                 const message =
                   error instanceof Error ? error.message : String(error);
                 span.recordException(error as Error);
-                // SPEC 07 Fix A: the status message is not a span
-                // attribute, so RedactingSpanExporter does not cover it —
-                // redact it here instead.
+                // The status message isn't an attribute, so the span
+                // exporter doesn't redact it — redact it here.
                 span.setStatus({
                   code: SpanStatusCode.ERROR,
                   message: redact(message),
@@ -152,17 +127,14 @@ export class JobRunner implements OnApplicationShutdown {
       this.logger.log({ queue: handler.queue, pollingIntervalSeconds });
     }
 
-    // SPEC 07 — scheduled jobs (R6.1/R6.2). Called from the worker only
-    // (this file never runs in the api process); pg-boss's own scheduler
-    // dedupes cron ticks across instances of the same process, so this is
-    // safe even with more than one worker.
+    // Scheduled jobs, worker only. pg-boss dedupes cron ticks across
+    // instances.
     for (const { queue, cron } of SCHEDULED_JOBS) {
       await this.boss.schedule(queue, cron, { payload: {} });
     }
 
-    // Boot is only "done" once every queue has a registered worker and the
-    // gauge is live — worker-healthcheck.js (R3.8) treats this file's mere
-    // existence as "ready".
+    // Write the readiness file only once every queue has a worker and the
+    // gauge is live — the healthcheck treats its existence as ready.
     writeFileSync(WORKER_READINESS_FILE_PATH, '');
   }
 
@@ -170,8 +142,7 @@ export class JobRunner implements OnApplicationShutdown {
     try {
       unlinkSync(WORKER_READINESS_FILE_PATH);
     } catch {
-      // Already gone, or never written (shutdown before start() finished)
-      // — either way there is nothing left to clean up.
+      // Already gone, or never written — nothing to clean up.
     }
     await this.boss.stop({
       graceful: true,

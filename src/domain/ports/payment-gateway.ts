@@ -1,10 +1,8 @@
 import { PaymentStatus } from '../enum-types/payment-status';
 
 /**
- * FR-4's exact field list: `charge({ cardNumber, amountMinor, currency,
- * description, idempotencyKey })`. Flat primitives, not a `Money` value
- * object — this crosses the boundary to an external HTTP payment provider
- * that expects wire-format JSON, not a domain type.
+ * Flat primitives, not Money: this crosses to an external HTTP provider
+ * that expects wire-format JSON.
  */
 export interface ChargeCommand {
   cardNumber: string;
@@ -12,15 +10,13 @@ export interface ChargeCommand {
   amountMinor: number;
   currency: string;
   description: string;
-  /** Derived from the order id + attempt (FR-5) so a retry can never double-charge. */
+  /** Derived from order id + attempt so a retry can never double-charge. */
   idempotencyKey: string;
 }
 
 /**
- * Enough to persist a `payments` row and decide the order's next
- * transition. `status` reuses the domain's own PaymentStatus — including
- * `UNKNOWN` for a provider timeout, resolved later by reconciliation
- * (FR-4/FR-5).
+ * Enough to persist a `payments` row and choose the next transition.
+ * UNKNOWN (e.g. timeout) is resolved later by reconciliation.
  */
 export interface ChargeResult {
   status: PaymentStatus;
@@ -28,14 +24,13 @@ export interface ChargeResult {
   cardLast4: string | null;
   cardBrand: string | null;
   failureCode: string | null;
-  /** Redacted gateway payload, opaque to the domain — never the full PAN (FR-4). */
+  /** Redacted gateway payload, opaque to the domain — never the full PAN. */
   rawResponse: Record<string, unknown> | null;
 }
 
 /**
- * R0.6 (frozen contract). Implemented by P2 (`MockPaymentGateway`,
- * deterministic by card number per FR-4's outcome table) and consumed by
- * P4's payment phase and the reconciliation job (FR-5).
+ * Implemented by HttpPaymentGateway; used by the saga's charge phase and by
+ * reconciliation.
  */
 export interface PaymentGateway {
   charge(command: ChargeCommand): Promise<ChargeResult>;

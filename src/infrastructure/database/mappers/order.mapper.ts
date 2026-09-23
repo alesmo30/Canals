@@ -10,14 +10,8 @@ import { OrderItemOrmEntity } from '../entities/order-item.orm-entity';
 import { OrderOrmEntity } from '../entities/order.orm-entity';
 
 /**
- * R0.5: the one mapper this spec builds — Order/OrderItem are the only
- * domain classes with a TypeORM entity to convert to and from. Everything
- * else in src/infrastructure/database/entities/** is used directly.
- *
- * `shippingLocation` converts to/from GeoPoint (geo-point.ts) — verified
- * directly against a live database that TypeORM decodes/encodes a
- * `geography` column as plain GeoJSON once `spatialFeatureType`/`srid` are
- * declared, both through `find()` and `repository.save()`.
+ * Only Order/OrderItem have domain classes, so this is the only mapper.
+ * `shippingLocation` ↔ GeoPoint (see geo-point.ts).
  */
 export function orderToDomain(entity: OrderOrmEntity): Order {
   return new Order({
@@ -27,8 +21,7 @@ export function orderToDomain(entity: OrderOrmEntity): Order {
     warehouseId: entity.warehouseId,
     status: entity.status,
     total: Money.of(entity.totalCents, entity.currency),
-    // Trusts the shape written at order-creation time (FR-1's request
-    // contract); this is a read path, not where that shape gets validated.
+    // Trusts the shape written at order creation; this read path doesn't validate it.
     shippingAddress: ShippingAddress.of(
       entity.shippingAddress as unknown as ShippingAddressProps,
     ),

@@ -10,12 +10,6 @@ import { ProductOrmEntity } from '../entities/product.orm-entity';
 import { ShipmentOrmEntity } from '../entities/shipment.orm-entity';
 import { WarehouseOrmEntity } from '../entities/warehouse.orm-entity';
 
-/**
- * Integration test — DATABASE_URL (+ PAYMENTS_URL,
- * OTEL_EXPORTER_OTLP_ENDPOINT) exported, a migrated Postgres reachable.
- * Builds its own customer/product/orders (randomUUID-scoped) rather than
- * depending on seed.ts (references/testing.md).
- */
 describe('OrdersReadRepository (integration)', () => {
   let repo: OrdersReadRepository;
   let customerId: string;

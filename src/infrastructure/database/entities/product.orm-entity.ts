@@ -3,7 +3,7 @@ import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 import { bigintNumberTransformer } from '../transformers/bigint-number.transformer';
 import type { ProductCondition } from '../../../domain/enum-types/product-condition';
 
-/** Runtime mirror of the `product_condition` enum (migration, step 7) — TypeORM's `enum` column option needs an actual array, not just a type. */
+/** Runtime mirror of product_condition (TypeORM's `enum` option needs an array). */
 const PRODUCT_CONDITION_VALUES: readonly ProductCondition[] = [
   'NEW',
   'REFURBISHED',
@@ -11,10 +11,7 @@ const PRODUCT_CONDITION_VALUES: readonly ProductCondition[] = [
   'USED',
 ];
 
-/**
- * Mirrors `products` (migration, step 7). No domain mirror (R0.5): read
- * inside other queries, no invariant of its own to guard in memory.
- */
+/** No domain class: only read inside other queries. */
 @Entity('products')
 export class ProductOrmEntity {
   @PrimaryGeneratedColumn('uuid')

@@ -38,9 +38,8 @@ const chargeSchema: FastifySchema = {
 };
 
 /**
- * SPEC 03: the app builder, so tests build a fresh instance per test with
- * injectable delays (via `fastify.inject()`, no listening socket needed)
- * and `main.ts` builds one production instance that actually listens.
+ * App builder: tests build a fresh instance per test with injectable delays
+ * (`fastify.inject()`, no socket); `main.ts` builds the one that listens.
  */
 export function buildServer(options?: ChargeServiceOptions): FastifyInstance {
   const app = Fastify({ logger: false });

@@ -11,19 +11,10 @@ import { validateEnv } from '../src/infrastructure/config/env.schema';
 import { PERSISTENCE_ENTITIES } from '../src/infrastructure/database/persistence-entities';
 
 /**
- * specs/07-hardening-demo.md, R6.3 — the concurrency proof through the
- * full HTTP stack: `scripts/concurrency-check.ts` (P1) exercises
- * `InventoryService.reserve` in-process; this one fires real
- * `POST /orders` requests at a running `api` (`docker compose up`,
- * `API_URL`, default `http://localhost:3000`) and proves the same
- * guarantee end to end — through `AllocateInventoryUseCase`'s failover
- * loop, the saga's three phases and `OrderSettlementService`.
- *
- * Own fixture, own `DataSource` for setup/verification only — the script
- * never touches `InventoryService` itself, every reservation happens
- * through the api. `N` is an argument (default 5); the script resets its
- * own harness product/warehouse every run, so re-running — including at
- * a different `N`, e.g. `-- 50` — always starts clean.
+ * End-to-end concurrency proof: fires real `POST /orders` at a running api.
+ * Own `DataSource` for setup/verification only; `N` is an argument
+ * (default 5) and the fixture is reset each run.
+ * See knowledge/scripts.md#concurrency-e2e
  */
 
 const DEFAULT_N = 5;
@@ -31,8 +22,7 @@ const EXTRA_LOSING_ATTEMPTS = 20;
 const DEFAULT_API_URL = 'http://localhost:3000';
 const APPROVED_CARD_NUMBER = '4242424242424242';
 
-// Fixed ids, distinct from concurrency-check.ts's `d0...` and
-// events-check.ts's `e0...` harnesses — the three scripts never contend
+// Fixed ids distinct from the other harness scripts, so they never contend
 // on the same rows.
 const HARNESS_CUSTOMER_ID = 'f0000000-0000-0000-0000-000000000001';
 const HARNESS_WAREHOUSE_ID = 'f0000000-0000-0000-0000-000000000002';

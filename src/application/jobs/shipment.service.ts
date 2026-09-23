@@ -7,30 +7,9 @@ import {
 } from './helpers/shipment-mock.helpers';
 
 /**
- * `warehouse_id` comes from a subquery against the *same* `$1` rather than
- * `INSERT ... SELECT ... FROM orders`, so a non-existent `orderId` still
- * reaches the `INSERT` instead of the `SELECT` silently matching zero rows
- * and writing nothing at all. Nothing is ever written — no partial row
- * (R3.4) — no application-level branching either
- * (`references/layering.md`'s domain-service test — shipments.orm-entity.ts's
- * own comment: "its only rule is the UNIQUE(order_id) constraint... not
- * in-memory logic"):
- * - `orderId` exists but its `warehouse_id` is `NULL` → the subquery
- *   returns `NULL`, and the insert violates `warehouse_id NOT NULL`.
- * - `orderId` does not exist in `orders` → the subquery *also* returns
- *   `NULL` (no matching row), so this hits the exact same `warehouse_id
- *   NOT NULL` violation, not `order_id`'s `REFERENCES orders (id)` —
- *   verified directly in psql: Postgres checks `NOT NULL` constraints
- *   (`ExecConstraints`, before the row is even built) ahead of `FOREIGN
- *   KEY` triggers (which only run on a row that has already been
- *   inserted), so a `NOT NULL` violation always wins when both would
- *   otherwise fire. There is no query shape that reaches the `order_id`
- *   foreign key here without first resolving a non-null `warehouse_id` —
- *   which a genuinely missing order can never supply (SPEC 04 step 6,
- *   deviation from the phase's literal "foreign-key violation" wording;
- *   the mechanism it exists to prove — fails without a partial row, the
- *   other two queues unaffected — holds regardless of which `NOT NULL`
- *   database constraint reports it).
+ * A subquery (not INSERT … SELECT) so a missing order or null warehouse_id
+ * fails on warehouse_id NOT NULL instead of silently inserting nothing.
+ * See knowledge/investigations.md#not-null-before-fk
  */
 const INSERT_SHIPMENT_SQL = `
   INSERT INTO shipments (order_id, warehouse_id, status, carrier, tracking_number, dispatched_at)
@@ -39,20 +18,9 @@ const INSERT_SHIPMENT_SQL = `
 `;
 
 /**
- * SPEC 04 Scope: "INSERT INTO shipments … ON CONFLICT (order_id) DO
- * NOTHING … warehouse_id read from the order".
- * `ON CONFLICT (order_id) DO NOTHING` is the idempotency: running this
- * twice for the same order inserts once and errors never (R3.4) — a
- * pg-boss retry after a successful first insert simply discards its own
- * freshly-generated carrier/tracking values instead of overwriting them.
- *
- * Deliberate deviation from specs/04-queue-worker-observability.md
- * ("shipment lifecycle transitions beyond PENDING_DISPATCH... goes in its
- * own spec"): requested for local QA/demo so a shipment is inspectable as
- * dispatched immediately, without adding a delayed pg-boss job or any new
- * queue. `status` starts at `DISPATCHED` with a random-but-carrier-shaped
- * `carrier`/`tracking_number`/`dispatched_at` instead of `PENDING_DISPATCH`
- * with nulls. `delivered_at` stays null — only dispatch is mocked.
+ * ON CONFLICT (order_id) DO NOTHING makes a retry idempotent. Dispatch is
+ * mocked: rows start DISPATCHED with a fake carrier/tracking number.
+ * See knowledge/messaging-jobs.md#shipment-create
  */
 @Injectable()
 export class ShipmentService {

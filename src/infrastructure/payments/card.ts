@@ -6,10 +6,8 @@ export interface CardDescription {
 }
 
 /**
- * SPEC 03: `cardLast4`/`cardBrand` are derived locally from the PAN, not
- * read off the provider's response — the alternative leaves them `null`
- * on exactly the rows reconciliation needs (a timeout, a `500`, an open
- * breaker), since no response ever arrived to read them from.
+ * Derived from the PAN locally: provider responses are missing on exactly
+ * the rows reconciliation needs.
  *
  * Prefix ranges: Visa `4` · Mastercard `51`–`55`, `2221`–`2720` · Amex
  * `34`, `37` · Discover `6011`, `644`–`649`, `65` · anything else

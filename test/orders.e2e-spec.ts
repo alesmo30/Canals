@@ -29,24 +29,9 @@ function asProblem(body: unknown): ProblemDetails {
 }
 
 /**
- * specs/05-order-creation-saga.md, step 13 — acceptance coverage for
- * R4.5's 7 error rows plus the happy path and idempotency semantics, all
- * through real HTTP requests against a fully booted `ApiModule`.
- *
- * Requires DATABASE_URL, PAYMENTS_URL (`payments-mock` reachable,
- * `docker compose up`) and OTEL_EXPORTER_OTLP_ENDPOINT exported, and a
- * migrated Postgres reachable. `AppDataSource` builds/asserts fixtures
- * directly (randomUUID-scoped, not seed.ts); the real HTTP requests go
- * through the booted Nest app's own connection.
- *
- * Not covered here, by design:
- * - `docker stop payments-mock` -> 502 + open circuit breaker (AC row 5):
- *   the breaker is global, in-process state — running it here would
- *   contaminate every other test's payment calls (Risks table,
- *   specs/05). It belongs in its own isolated run, same as P2 already
- *   decided.
- * - "no card number in logs/traces": verified by grepping
- *   `npm run events-check`'s own output, not a jest assertion.
+ * Acceptance coverage for POST /orders over real HTTP. Not covered here:
+ * payments-mock down → 502 (the breaker is global in-process state) and
+ * "no card numbers in logs" (checked by grepping logs).
  */
 describe('POST /orders (e2e)', () => {
   let app: INestApplication<App>;
@@ -276,21 +261,9 @@ describe('POST /orders (e2e)', () => {
     const statuses = [first.status, second.status];
     expect(statuses.filter((status) => status === 201)).toHaveLength(1);
 
-    // Which status the loser gets depends on exactly how the two
-    // in-process requests interleave: if the winner's whole Phase 1 (incl.
-    // its commit) finishes before the loser's own selection query runs,
-    // the loser sees zero candidates (422, NO_CANDIDATES); if both select
-    // the same candidate first and only one wins the row lock, the loser
-    // exhausts its failover loop instead (409, RESERVATION_RACE_LOST).
-    // `Promise.all()` over two in-process HTTP calls cannot force either
-    // interleaving deterministically — same lesson as
-    // specs/02-fulfilment-core.md's Risks table draws for
-    // concurrency-check.ts ("the harness reports N successes while
-    // actually running sequentially, proving nothing"). The deterministic,
-    // timing-independent proof that RESERVATION_RACE_LOST maps to 409
-    // lives in allocate-inventory.use-case.integration.spec.ts, which
-    // forces the exact interleaving via a test seam. This test only
-    // proves the HTTP-level invariant that actually matters here: no
+    // The loser gets 422 or 409 depending on interleaving, which can't be
+    // forced here; the deterministic 409 proof is in
+    // allocate-inventory.use-case.integration.spec.ts. This asserts no
     // double-booking.
     const loserStatus = statuses.find((status) => status !== 201);
     expect([409, 422]).toContain(loserStatus);
@@ -337,8 +310,8 @@ describe('POST /orders (e2e)', () => {
     const problem = asProblem(res.body);
     expect(problem.status).toBe(502);
 
-    // SPEC 07 Fix C: the 502 body carries orderId, pointing the client at
-    // GET /orders/:id instead of a retry with a new Idempotency-Key.
+    // The 502 body carries orderId so the client polls GET /orders/:id
+    // instead of retrying with a new key.
     expect(problem.orderId).toBeDefined();
     expect(problem.detail).toContain(`poll GET /orders/${problem.orderId}`);
 

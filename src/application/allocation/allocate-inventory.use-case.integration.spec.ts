@@ -16,12 +16,6 @@ import { WarehouseOrmEntity } from '../../infrastructure/database/entities/wareh
 import { WarehouseSelectionRepository } from '../../infrastructure/database/repositories/warehouse-selection.repository';
 import { Coordinates } from '../../domain/value-objects/coordinates';
 
-/**
- * Integration test — same prerequisites as the sibling
- * inventory.service.integration.spec.ts: DATABASE_URL (+ PAYMENTS_URL,
- * OTEL_EXPORTER_OTLP_ENDPOINT) exported, a migrated Postgres reachable.
- * Builds its own customer/products/warehouses fixtures, not seed.ts.
- */
 describe('AllocateInventoryUseCase (integration)', () => {
   const useCase = new AllocateInventoryUseCase(
     new WarehouseSelectionRepository(AppDataSource),
@@ -89,7 +83,7 @@ describe('AllocateInventoryUseCase (integration)', () => {
     });
   }
 
-  /** The "mock order" onBeforeReserve inserts, per specs/02-fulfilment-core.md, Scope. */
+  /** The stand-in order that onBeforeReserve inserts. */
   function insertMockOrder(): OnBeforeReserve {
     return async (manager, { orderId }) => {
       await manager.query(
@@ -157,9 +151,8 @@ describe('AllocateInventoryUseCase (integration)', () => {
     );
     expect(farMovements).toHaveLength(1);
 
-    // No partial write survives from the failed first attempt: the whole
-    // attempt-1 transaction (mock order insert, the stock-zeroing UPDATE,
-    // and reserve()'s own work) rolled back together.
+    // Nothing from the failed first attempt survives: its whole transaction
+    // rolled back.
     const nearMovements = await AppDataSource.query<unknown[]>(
       `SELECT 1 FROM inventory_movements WHERE warehouse_id = $1 AND product_id = $2`,
       [nearWarehouseId, productId],

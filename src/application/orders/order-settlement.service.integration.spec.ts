@@ -16,11 +16,8 @@ import { setupQueues } from '../../infrastructure/messaging/queue-setup';
 import { PgBossEventPublisher } from '../../infrastructure/messaging/pg-boss-event-publisher';
 
 /**
- * specs/07-hardening-demo.md, step 6 — integration test: DATABASE_URL,
- * PAYMENTS_URL and OTEL_EXPORTER_OTLP_ENDPOINT exported, a migrated
- * Postgres reachable. Builds `orders`/`order_items`/`inventory` fixtures
- * directly (randomUUID-scoped) — this service never creates an order
- * itself, only settles one that already exists at `PENDING_PAYMENT`.
+ * Fixtures are built directly: this service only settles existing
+ * PENDING_PAYMENT orders.
  */
 describe('OrderSettlementService (integration)', () => {
   let boss: PgBoss;

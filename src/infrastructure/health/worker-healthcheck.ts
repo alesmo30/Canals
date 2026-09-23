@@ -6,12 +6,8 @@ import { WORKER_READINESS_FILE_PATH } from './worker-readiness';
 import { validateEnv } from '../config/env.schema';
 
 /**
- * SPEC 04 Scope: the worker "having no HTTP port, is checked by `node
- * dist/infrastructure/health/worker-healthcheck.js`" — this is that
- * script, wired as `docker-compose.yml`'s worker `healthcheck:`. Bare
- * `pg.Client`, not `AppDataSource`: Docker runs this on an interval
- * (`docker compose ps`, R3.8) and a lighter connection than a full
- * TypeORM `DataSource` is what a healthcheck should cost.
+ * Docker healthcheck for the port-less worker: readiness file plus a bare
+ * pg.Client (lighter than a DataSource).
  */
 async function main(): Promise<void> {
   if (!existsSync(WORKER_READINESS_FILE_PATH)) {

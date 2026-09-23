@@ -5,18 +5,9 @@ import { join } from 'path';
 import { AppDataSource } from '../data-source';
 
 /**
- * R1.2's EXPLAIN assertion. Runs inside its own transaction — several
- * hundred synthetic warehouses and the ANALYZE that follows both roll
- * back with it, so this test leaves nothing behind for the rest of the
- * suite. Integration test — same prerequisites as the sibling
- * warehouse-selection.repository.integration.spec.ts.
- *
- * specs/02-fulfilment-core.md, step 4: capture what the planner actually
- * does with the inventory/product join present, assert on that captured
- * shape, and record the plan + reason in the spec's Decisions if it
- * deviates from an Index Scan using idx_warehouses_location_gist. It
- * does deviate here — see below and the spec's Decisions section for the
- * full captured plan.
+ * EXPLAIN assertion for select-warehouse.sql, run inside a rolled-back
+ * transaction. The planner uses the documented fallback, not a GiST index
+ * scan. See knowledge/allocation.md#selection-query-plan
  */
 describe('select-warehouse.sql query plan (integration)', () => {
   const sql = readFileSync(
@@ -120,10 +111,8 @@ describe('select-warehouse.sql query plan (integration)', () => {
         // The ideal path: the GiST index drives the ordering directly.
         expect(gistScans[0]['Order By']).toBeDefined();
       } else {
-        // The documented fallback (spec Decisions / Risks): the eligible
-        // CTE is computed first, `warehouses` is reached only through
-        // its primary key for the (small) eligible set, and that small
-        // set is sorted directly — never a sequential scan of all 500.
+        // Fallback plan: eligible CTE first, warehouses via primary key for
+        // that small set, sorted directly — never a seq scan of all 500.
         const warehouseSeqScans = findNodes(plan, 'Seq Scan').filter(
           (node) => node['Relation Name'] === 'warehouses',
         );
@@ -135,8 +124,7 @@ describe('select-warehouse.sql query plan (integration)', () => {
         expect(warehousePkeyScans.length).toBeGreaterThan(0);
         expect(warehousePkeyScans[0]['Index Name']).toBe('warehouses_pkey');
 
-        // Captured for the spec's Decisions section (pasted there, not
-        // re-pasted on every run).
+        // Printed so the captured fallback plan can be inspected.
         console.log(
           'select-warehouse.sql plan (fallback path):',
           JSON.stringify(plan, null, 2),

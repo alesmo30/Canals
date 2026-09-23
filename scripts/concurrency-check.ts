@@ -10,24 +10,13 @@ import { validateEnv } from '../src/infrastructure/config/env.schema';
 import { PERSISTENCE_ENTITIES } from '../src/infrastructure/database/persistence-entities';
 
 /**
- * specs/02-fulfilment-core.md, step 9 — the concurrency proof. Own
- * `DataSource`, `poolSize: 30`: TypeORM's default pool of 10 would queue
- * most of the N + 20 attempts in the pool rather than on the row lock,
- * and the run would prove nothing about `reserve`'s locking (Decisions).
- * Fires from one process with `Promise.all` against a shared start
- * signal, so every attempt contends on the same `inventory` row rather
- * than on connection availability or being spread out by scheduling.
+ * Own `DataSource` with `poolSize: 30`: TypeORM's default pool of 10 would
+ * queue attempts on the pool instead of the row lock, proving nothing
+ * about `reserve`'s locking.
  *
- * Every successful reserve is immediately committed (simulates payment
- * succeeding for that order) — the only way the run's final state can
- * reach `quantity_available = 0` *and* `quantity_reserved = 0`
- * (acceptance criteria): reserve alone would leave N units sitting in
- * `quantity_reserved`, never zero.
- *
- * `N` is an argument (default 5); the script resets the harness
- * product's stock and clears its prior movements itself, so re-running
- * — including at a different `N`, e.g. `-- 50` — always starts clean and
- * gives the same shape of result.
+ * Every successful reserve is committed so the run can end at available = 0
+ * and reserved = 0. `N` is an argument (default 5); the fixture is reset
+ * each run. See knowledge/scripts.md#concurrency-check
  */
 
 const DEFAULT_N = 5;
@@ -78,10 +67,8 @@ async function resetFixtures(dataSource: DataSource, n: number): Promise<void> {
     [HARNESS_PRODUCT_ID],
   );
 
-  // Clears prior movements for this specific harness fixture — outside
-  // src/, the append-only-ledger rule (no UPDATE/DELETE against
-  // inventory_movements anywhere in src/) does not apply to this dev
-  // harness resetting its own test data between local runs.
+  // Resets this harness's own fixture. The append-only ledger rule applies
+  // to src/ only, not to this dev script.
   await dataSource.query(
     `DELETE FROM inventory_movements WHERE warehouse_id = $1 AND product_id = $2`,
     [HARNESS_WAREHOUSE_ID, HARNESS_PRODUCT_ID],

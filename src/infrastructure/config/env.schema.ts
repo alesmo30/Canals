@@ -1,10 +1,8 @@
 import { z } from 'zod';
 
 /**
- * R0.3 — every configuration value the app needs comes from the process
- * environment and is validated against this schema at boot. The app must
- * refuse to start on invalid config rather than failing later on first use
- * (e.g. a bad DATABASE_URL surfacing only when the first query runs).
+ * All config comes from env and is validated at boot: refuse to start on
+ * bad config instead of failing on first use.
  */
 export const envSchema = z
   .object({
@@ -39,10 +37,7 @@ export const envSchema = z
 
     RESERVATION_TTL_MINUTES: z.coerce.number().int().positive().default(15),
 
-    // SPEC 07 R6.6: an allowed CORS origin is exactly the kind of value an
-    // operator changes per deployment, so it is an env var, not a
-    // constant (references/coding-conventions.md). Comma-separated;
-    // split/trimmed into the array main.ts's enableCors() needs.
+    // Changes per deployment, so an env var. Comma-separated.
     CORS_ORIGINS: z
       .string()
       .default('http://localhost:3000')
@@ -53,11 +48,8 @@ export const envSchema = z
           .filter((origin) => origin.length > 0),
       ),
 
-    // Dev-only readability toggle for pino.config.ts — off (raw JSON) by
-    // default so docker-compose containers, which never set it, keep
-    // emitting parseable JSON lines (specs/03-external-adapters.md:334).
-    // z.enum, not z.coerce.boolean(): the latter's `Boolean(str)` treats
-    // any non-empty string — including the literal "false" — as true.
+    // Dev-only; off by default so containers emit JSON. z.enum, not
+    // z.coerce.boolean(): the latter treats "false" as true.
     LOG_PRETTY: z.enum(['true', 'false']).default('false'),
   })
   .refine(
@@ -73,12 +65,7 @@ export const envSchema = z
 export type AppConfig = z.infer<typeof envSchema>;
 
 /**
- * Validates the raw process environment against {@link envSchema}.
- *
- * Called from `ConfigModule.forRoot({ validate })` (see config.module.ts),
- * which NestJS invokes synchronously during `NestFactory.create()`. Throwing
- * here aborts the bootstrap promise before any controller, repository or
- * queue connection is created — the app never reaches a half-started state.
+ * Throws during bootstrap so the app never reaches a half-started state.
  */
 export function validateEnv(raw: Record<string, unknown>): AppConfig {
   const result = envSchema.safeParse(raw);

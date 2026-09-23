@@ -10,21 +10,9 @@ import { CustomerOrmEntity } from '../database/entities/customer.orm-entity';
 import { OrderOrmEntity } from '../database/entities/order.orm-entity';
 
 /**
- * SPEC 04 step 3 — the critical gate (R3.2). If the rollback assertion
- * fails, FR-9's outbox argument is false and nothing further in P3 or P4 is
- * sound (Implementation plan, step 3). Requires DATABASE_URL (+
- * PAYMENTS_URL, OTEL_EXPORTER_OTLP_ENDPOINT for env.schema.ts's validation)
- * exported and a migrated Postgres reachable — same prerequisites as
- * data-source.integration.spec.ts.
- *
- * This is the first test file to construct `PgBoss` for real (every other
- * P3 file only ever imports its *type*, which TypeScript erases). pg-boss@12
- * is ESM-only (SPEC 04 step 1 finding); Jest's default
- * `transformIgnorePatterns` skips `node_modules`, so without
- * `test/jest-integration.json` un-ignoring it, `require('pg-boss')` inside
- * Jest's CJS sandbox throws `ERR_REQUIRE_ESM` even though the built app's
- * plain `node dist/main.worker.js` loads it fine (Node's own
- * `require(esm)`, which Jest's VM-sandboxed module loader does not use).
+ * Critical gate: if the rollback assertion fails, the outbox guarantee is
+ * false. pg-boss is ESM-only, so `test/jest-integration.json` un-ignores it.
+ * See knowledge/testing.md#pgboss-esm-jest
  */
 describe('PgBossEventPublisher (integration)', () => {
   let boss: PgBoss;
@@ -99,12 +87,7 @@ describe('PgBossEventPublisher (integration)', () => {
     expect(new Set(jobs.map((job) => job.correlationId)).size).toBe(1);
   });
 
-  /**
-   * A minimal, valid `orders` row — not built through OrderMapper/domain
-   * entities, since this test only needs a row TX2 can write and later
-   * find by id, standing in for "the order update TX2 does alongside the
-   * publish" (event-publisher.ts's own module doc comment example).
-   */
+  /** Minimal `orders` row standing in for the order update done alongside publish. */
   function orderFixture(
     id: string,
     customerId: string,

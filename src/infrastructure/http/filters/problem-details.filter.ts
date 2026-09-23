@@ -25,7 +25,7 @@ export interface ProblemDetailsErrorItem {
   message: string;
 }
 
-/** specs/05-order-creation-saga.md, Data model. `orderId` is an RFC 9457 extension member, set only on the `502` (SPEC 07 Fix C, Decisions). */
+/** RFC 9457 body. `orderId` is an extension member, set only on the `502`. */
 export interface ProblemDetails {
   type: string;
   title: string;
@@ -37,7 +37,7 @@ export interface ProblemDetails {
   orderId?: string;
 }
 
-/** Exported so the controller (step 12) can mark `idempotency_keys` COMPLETED with the exact status/body the client is about to receive, without duplicating this mapping. */
+/** Exported so the idempotency service stores exactly the status/body the client receives. */
 export interface ProblemShape {
   status: number;
   type: string;
@@ -62,7 +62,7 @@ const WHITELIST_VIOLATION_PATTERN = /^property (.+) should not exist$/;
  * separate field (`@nestjs/common/pipes/validation.pipe.js`,
  * `prependConstraintsWithParentProp`). Splitting on the first space
  * reliably recovers the path for those, without needing a custom
- * `exceptionFactory` in the already-frozen main.ts.
+ * `exceptionFactory` in main.ts.
  */
 function extractValidationErrors(
   response: unknown,
@@ -86,12 +86,7 @@ function extractValidationErrors(
   });
 }
 
-/**
- * SPEC 07 R6.6: the shape `http-errors` (used by `body-parser`/`raw-body`,
- * among others) gives an Express-middleware-thrown error — a `status`
- * (the intended HTTP status) and `expose: true` (safe to show the client,
- * as opposed to an internal 500 detail).
- */
+/** Shape of an `http-errors` error thrown by Express middleware: a `status` and `expose: true` (safe to show). */
 interface ExposedHttpError extends Error {
   status: number;
   expose: true;
@@ -106,11 +101,8 @@ function isExposedHttpError(error: unknown): error is ExposedHttpError {
 }
 
 /**
- * specs/05-order-creation-saga.md, R4.5 — every branch this saga can end
- * in, mapped to its status. `type` values are `urn:problem-type:*`
- * identifiers, not resolvable URLs — RFC 9457 only requires a URI
- * reference that discriminates the problem type, and this codebase has no
- * documentation site to point them at.
+ * Maps every saga outcome to its status. `type` values are
+ * `urn:problem-type:*` identifiers — RFC 9457 allows a non-resolvable URI.
  */
 export function buildProblem(exception: unknown): ProblemShape {
   if (exception instanceof BadRequestException) {
@@ -137,8 +129,7 @@ export function buildProblem(exception: unknown): ProblemShape {
   }
 
   if (exception instanceof NoFulfilmentPossibleError) {
-    // specs/05, Decisions: P1's error carries `reason` so this one class
-    // can still map to two different statuses (422 vs 409).
+    // One error class, two statuses via `reason` (422 vs 409).
     return exception.reason === 'RESERVATION_RACE_LOST'
       ? {
           status: HttpStatus.CONFLICT,
@@ -178,8 +169,8 @@ export function buildProblem(exception: unknown): ProblemShape {
       status: HttpStatus.BAD_GATEWAY,
       type: 'urn:problem-type:payment-provider-unavailable',
       title: 'Payment provider unavailable',
-      // SPEC 07 Fix C: tells the client to poll the order instead of
-      // re-posting with a new Idempotency-Key, which could charge twice.
+      // Tell the client to poll the order, not re-post with a new
+      // Idempotency-Key (that could charge twice).
       detail:
         `Payment outcome unknown${failureCode ? ` (${failureCode})` : ''}. ` +
         `Order ${orderId} is pending confirmation — poll GET /orders/${orderId}; ` +
@@ -197,10 +188,8 @@ export function buildProblem(exception: unknown): ProblemShape {
     };
   }
 
-  // SPEC 07 R6.6: a body-parser/raw-body limit error (e.g. `413` from a
-  // body over BODY_LIMIT) is thrown by Express middleware, before Nest's
-  // request pipeline — it is shaped like the `http-errors` package's
-  // output (a `status` and `expose: true`), not an `HttpException`.
+  // Body-parser limit errors (e.g. 413) come from Express middleware before
+  // Nest; they're shaped like http-errors, not HttpException.
   if (isExposedHttpError(exception)) {
     return {
       status: exception.status,
@@ -219,14 +208,9 @@ export function buildProblem(exception: unknown): ProblemShape {
 }
 
 /**
- * specs/05-order-creation-saga.md — the single RFC 9457 envelope for
- * every error response. `correlationId` always comes from
- * `AsyncLocalStorage` (`CorrelationMiddleware` sets it before any
- * handler runs) — never generated here, so it always matches the
- * request's own trace. Unhandled exceptions (`500`) are logged with
- * their full stack; `nestjs-pino`'s serializer runs every logged object
- * through `redact()` (`shared.module.ts`), so a card number can never
- * reach a log line this way either.
+ * Single RFC 9457 envelope. `correlationId` always comes from
+ * AsyncLocalStorage, never generated here. 500s log the full stack; the
+ * logger redacts every object, so card numbers can't reach logs this way.
  */
 @Catch()
 export class ProblemDetailsFilter implements ExceptionFilter {

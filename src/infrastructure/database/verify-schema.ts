@@ -1,18 +1,8 @@
 import { AppDataSource } from './data-source';
 
 /**
- * Automates the psql-based acceptance criteria from specs/01-foundation.md
- * — the checks this project's earlier steps ran by hand against a live
- * database, now repeatable. Assumes a fully migrated AND seeded stack
- * (`docker compose up`, or migration:run + seed run manually); it does not
- * bring anything up itself.
- *
- * Every check that proves a rejection (a CHECK constraint, the partial
- * unique index) runs inside one transaction that is always rolled back,
- * success or failure, so this script never leaves a trace in real data —
- * it does not even need the seed's own rows for its throwaway
- * customer/order, only a real seeded warehouse and product to satisfy
- * foreign keys.
+ * Automates the schema acceptance checks against a migrated and seeded
+ * stack. Rejection checks run in a transaction that is always rolled back.
  */
 
 interface CheckResult {
@@ -160,11 +150,8 @@ async function checkFourSeedScenarios(): Promise<void> {
 }
 
 /**
- * Everything that proves a rejection — negative inventory, a zero
- * order_items.quantity, a second CAPTURED payment — needs a real
- * warehouse/product (from the seed) and a throwaway customer/order to
- * satisfy foreign keys. All of it happens in one transaction, rolled back
- * at the end regardless of outcome.
+ * Rejection checks need real seeded warehouse/product rows; all run in one
+ * always-rolled-back transaction.
  */
 async function checkRejectionsInARolledBackTransaction(): Promise<void> {
   const queryRunner = AppDataSource.createQueryRunner();
@@ -192,13 +179,9 @@ async function checkRejectionsInARolledBackTransaction(): Promise<void> {
       return;
     }
 
-    // A failed statement poisons the whole transaction in Postgres — every
-    // later query errors with "current transaction is aborted" even if it
-    // is perfectly valid, until a ROLLBACK. A SAVEPOINT scopes that damage
-    // to just the one statement expected to fail, so the transaction can
-    // keep going for the checks after it. (Found this the hard way: the
-    // first version of this function had no savepoints and every check
-    // after the first expected failure reported a false negative.)
+    // A failed statement aborts the whole Postgres transaction; a SAVEPOINT
+    // scopes the failure to the one statement expected to fail.
+    // See knowledge/database.md#savepoints
     async function expectRejection(
       name: string,
       sql: string,

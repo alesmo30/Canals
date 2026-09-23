@@ -1,7 +1,4 @@
-// SPEC 04 step 7: must be the first import — see tracing.ts's own comment
-// on why (auto-instrumentation patches http/pg by hooking their
-// require(), so anything imported before this leaves them
-// un-instrumented).
+// Must be the first import — see tracing.ts.
 import './infrastructure/observability/tracing';
 
 import { NestFactory } from '@nestjs/core';
@@ -12,26 +9,18 @@ import { JobRunner } from './infrastructure/messaging/job-runner';
 import { redact } from './infrastructure/http/redaction';
 
 async function bootstrap() {
-  // createApplicationContext(), not create(): boots the entire DI graph —
-  // every provider, repository and database connection — without starting
-  // an HTTP listener (infrastructure.md §3). No app.listen() here.
-  // bufferLogs: true — see main.ts.
+  // createApplicationContext(): the full DI graph without an HTTP listener.
+  // abortOnError/bufferLogs: see main.ts.
   const app = await NestFactory.createApplicationContext(WorkerModule, {
     abortOnError: false,
     bufferLogs: true,
   });
-  // SPEC 03 step 2: same redacting pino logger as the api (SharedModule's
-  // LoggerModule.forRoot(pinoOptions)).
+  // Same redacting pino logger as the api.
   app.useLogger(app.get(Logger));
-  // Without this, SIGTERM (docker stop) kills the process directly and
-  // JobRunner.onApplicationShutdown() (boss.stop({ graceful: true })) never
-  // runs — an in-flight job would be cut off mid-handler instead of
-  // finishing (SPEC 04 Decisions, "The worker, its connections and
-  // shutdown").
+  // Without shutdown hooks, SIGTERM skips JobRunner's graceful stop and
+  // cuts in-flight jobs off mid-handler.
   app.enableShutdownHooks();
-  // boss.work() per queue (infrastructure.md §3's `main.worker.ts`
-  // example). The open pg-boss/TypeORM pools keep the process alive from
-  // here; nothing else holds the event loop open.
+  // The open pg-boss/TypeORM pools keep the process alive.
   await app.get(JobRunner).start();
 }
 

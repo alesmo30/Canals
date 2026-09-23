@@ -1,7 +1,6 @@
 /**
- * SPEC 03: additive, beside the frozen `geocoding-provider.ts` port, so
- * P4 maps it to a `422` without importing infrastructure
- * (`references/layering.md`).
+ * Lives in the domain, beside the port, so the application maps it to 422
+ * without importing infrastructure.
  */
 export type GeocodingFailureReason = 'UNKNOWN_ADDRESS' | 'PROVIDER_UNAVAILABLE';
 

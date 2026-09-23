@@ -39,10 +39,10 @@ import {
   orderToPersistence,
 } from '../../infrastructure/database/mappers/order.mapper';
 
-/** A second attempt is out of scope today (SPEC 03's handoff) — always 1. */
+/** A second charge attempt is out of scope today — always 1. */
 const FIRST_PAYMENT_ATTEMPT = 1;
 
-/** SPEC 07 — the only two `ChargeResult.status` values that mean the provider gave a final answer. */
+/** The only two ChargeResult statuses that mean the provider gave a final answer. */
 function isDefinitiveOutcome(status: ChargeResult['status']): boolean {
   return status === 'CAPTURED' || status === 'DECLINED';
 }
@@ -76,13 +76,9 @@ export interface CreateOrderResult
 interface SettleOrderParams extends ReserveOrderResult, ChargeOrderResult {}
 
 /**
- * specs/05-order-creation-saga.md — the three-phase `POST /orders` saga.
- * `execute()` is the whole saga's table of contents: resolve, reserve,
- * charge, settle. Each phase's own flow and decisions stay inside its
- * own private method (not collapsed into a one-line delegating call);
- * splitting by phase mirrors the spec's own three-phase structure,
- * unlike the mechanical, no-decision helpers/ pattern used elsewhere in
- * this codebase (references/coding-conventions.md).
+ * The three-phase POST /orders saga. execute() reads as its table of
+ * contents (resolve, reserve, charge, settle); each phase keeps its
+ * decisions in its own private method.
  */
 @Injectable()
 export class CreateOrderUseCase {
@@ -147,16 +143,14 @@ export class CreateOrderUseCase {
     command: CreateOrderCommand,
     productById: Map<string, ProductOrmEntity>,
   ): Promise<ReserveOrderResult> {
-    // Resolved before AllocateInventoryUseCase.execute() ever runs, never
-    // inside onBeforeReserve — a hard rule as strict as R4.3's one for the
-    // payment call (specs/05-order-creation-saga.md, Risks).
+    // Geocode before AllocateInventoryUseCase runs, never inside
+    // onBeforeReserve — no network call inside the reservation transaction.
     const shippingAddress = ShippingAddress.of(command.shippingAddress);
     const shippingLocation =
       await this.geocodingProvider.geocode(shippingAddress);
 
-    // Generated once, before the failover loop, and reused across every
-    // retry — same reasoning as AllocateInventoryUseCase's own orderId
-    // (specs/05, Decisions).
+    // Generated once before the failover loop so it stays stable across
+    // retries.
     const orderNumber = await generateOrderNumber(this.dataSource);
 
     const total = command.lines.reduce(
@@ -224,10 +218,9 @@ export class CreateOrderUseCase {
   }
 
   /**
-   * Phase 2 (charge) — R4.3's hard rule: no transaction open while this
-   * is in flight. The idempotency key is persisted to `payments` before
-   * calling `charge()`, so P6's reconciliation reads it back from the
-   * row instead of rebuilding it (specs/05-order-creation-saga.md).
+   * Phase 2 (charge). No transaction may be open while charge() is in
+   * flight. The idempotency key is persisted to payments first, so
+   * reconciliation reads it back instead of rebuilding it.
    */
   private async chargeOrder(
     command: CreateOrderCommand,
@@ -276,10 +269,8 @@ export class CreateOrderUseCase {
       cardBrand: chargeResult.cardBrand,
       failureCode: chargeResult.failureCode,
       rawResponse: chargeResult.rawResponse,
-      // SPEC 07: settled_at only for a definitive outcome — R6.2's
-      // `settled_at IS NULL` query is how reconciliation finds the
-      // UNKNOWN payments it exists to resolve; setting it here for every
-      // outcome would make that query miss exactly those rows.
+      // settled_at only for a definitive outcome: reconciliation finds
+      // UNKNOWN payments via settled_at IS NULL.
       settledAt: isDefinitiveOutcome(chargeResult.status) ? new Date() : null,
       updatedAt: new Date(),
     });
@@ -288,13 +279,9 @@ export class CreateOrderUseCase {
   }
 
   /**
-   * Phase 3 (settle) — branches on the outcome table
-   * (specs/05-order-creation-saga.md, R4.3), delegating the actual
-   * transition/inventory/event sequence to `OrderSettlementService`
-   * (SPEC 07) — the same one the reaper and reconciliation call, guarded
-   * by its own row lock so this phase can never overwrite a settlement
-   * one of those jobs already made. Called without `payment`: Phase 2
-   * already wrote that row.
+   * Phase 3 (settle). Delegates to OrderSettlementService, whose row lock
+   * stops this phase overwriting a settlement a job already made.
+   * `payment` is omitted: Phase 2 already wrote that row.
    */
   private async settleOrder(
     params: SettleOrderParams,
@@ -319,8 +306,8 @@ export class CreateOrderUseCase {
       });
     }
 
-    // UNKNOWN: leave PENDING_PAYMENT, reservation intact — P6's
-    // reconciliation decides its fate (specs/05, Handoff from SPEC 03).
+    // UNKNOWN: leave PENDING_PAYMENT with the reservation intact;
+    // reconciliation decides.
     throw new PaymentProviderUnavailableError({
       orderId: order.getId(),
       failureCode: chargeResult.failureCode,

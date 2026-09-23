@@ -36,10 +36,8 @@ export interface ListOrdersResult {
 }
 
 /**
- * specs/06-read-side.md, step 5 — orchestrates the two queries from
- * OrdersReadRepository behind `GET /orders`: `hasMore` comes from the
- * `LIMIT pageSize + 1` lookahead (step 4's Decisions), and `nextCursor` is
- * built from the last *retained* row, never the lookahead row.
+ * hasMore comes from the LIMIT pageSize + 1 lookahead; nextCursor is built
+ * from the last retained row, never the lookahead.
  */
 @Injectable()
 export class ListOrdersService {
@@ -97,12 +95,7 @@ export class ListOrdersService {
     };
   }
 
-  /**
-   * specs/06-read-side.md, cursor.helpers.ts's Decisions — an invalid
-   * cursor is "the same bucket as an invalid query param", not a new
-   * problem-details case: rethrown as BadRequestException so the existing
-   * filter branch handles it.
-   */
+  /** An invalid cursor is a 400 like any invalid query param — rethrown as BadRequestException. */
   private decodeCursorOrThrow(cursor: string): { createdAt: Date; id: string } {
     try {
       return decodeCursor(cursor);

@@ -1,24 +1,8 @@
 import { OrderStatus } from '../enum-types/order-status';
 
 /**
- * R0.5 (frozen contract): the order state machine, as one readable
- * transition table, from architectural-requirements.md's diagram and FR-5
- * phase 3's settle outcomes:
- *
- *   PENDING_PAYMENT -> PAID -> CONFIRMED
- *   PENDING_PAYMENT -> PAYMENT_FAILED
- *   PENDING_PAYMENT -> CANCELLED (reservation expired)
- *
- * PAYMENT_FAILED and CANCELLED are both terminal, with no transition
- * between them — despite the ASCII diagram in architectural-requirements.md
- * drawing an arrow from PAYMENT_FAILED to CANCELLED. Three independent
- * passages of that same document disagree with that arrow: the
- * order_status enum's own note calls PAYMENT_FAILED terminal, FR-5 phase 3
- * lists exactly three settle outcomes with nothing past PAYMENT_FAILED, and
- * the reservation reaper / reconciliation job only ever act on orders still
- * PENDING_PAYMENT. Read the diagram's arrow as a layout artifact, not a
- * fourth transition — flagged when this was implemented (step 4/5), no
- * objection raised.
+ * The order state machine. PAYMENT_FAILED and CANCELLED are both terminal,
+ * with no edge between them. See knowledge/domain.md#order-state-machine
  */
 const ORDER_TRANSITIONS: Readonly<Record<OrderStatus, readonly OrderStatus[]>> =
   {

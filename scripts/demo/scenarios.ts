@@ -21,15 +21,12 @@ import {
   stopPaymentsMock,
 } from './harness';
 
-/** ≤ 75 s per specs/07-hardening-demo.md, step 13.4 — the reaper's own cron tick (≤ 60 s) plus margin for the mock's background 30 s delay to have already elapsed. */
+/** Reaper cron tick (≤ 60 s) plus margin for the mock's 30 s delay to have elapsed. */
 const REAPER_WAIT_TIMEOUT_MS = 75_000;
 /**
- * Scenario 6's own order shares the payments breaker scenario 5 just
- * tripped (http-payment-gateway.ts: charge() and getStatus() share one
- * breaker) — the reaper's own getStatus() call reads CIRCUIT_OPEN (not
- * the true 404) until BREAKER_OPEN_MS (30 s) has elapsed, which can push
- * its resolution out to a second cron tick. Two ticks plus the cooldown,
- * with margin.
+ * Scenario 5 tripped the shared payments breaker; the reaper reads
+ * CIRCUIT_OPEN until it cools down (30 s), so allow two ticks plus the
+ * cooldown.
  */
 const REAPER_WAIT_AFTER_BREAKER_TRIP_MS = 150_000;
 /** An absurd quantity no warehouse can ever supply (scenario 7). */

@@ -30,18 +30,9 @@ function asProblem(body: unknown): ProblemDetails {
 }
 
 /**
- * specs/06-read-side.md, step 11 — acceptance coverage for the 8 AC below,
- * through real HTTP requests against a fully booted `ApiModule`. AC #4
- * (`EXPLAIN` on the base-case listing query) is covered separately in
- * `orders-read.explain.integration.spec.ts`, next to the repository — it
- * needs a query runner/transaction, not HTTP.
- *
- * Requires DATABASE_URL, PAYMENTS_URL (`payments-mock` reachable, `docker
- * compose up`) and OTEL_EXPORTER_OTLP_ENDPOINT exported, and a migrated
- * Postgres reachable. `AppDataSource` builds fixtures directly
- * (randomUUID-scoped, not seed.ts); the real HTTP requests go through the
- * booted Nest app's own connection (`app.get(DataSource)`), which is what
- * every query-spy assertion below spies on.
+ * Acceptance coverage over real HTTP; the EXPLAIN check lives in
+ * `orders-read.explain.integration.spec.ts`. Query spies target the app's
+ * own DataSource (`app.get(DataSource)`), not `AppDataSource`.
  */
 describe('GET /orders, GET /orders/:id (e2e)', () => {
   let app: INestApplication<App>;
@@ -137,9 +128,7 @@ describe('GET /orders, GET /orders/:id (e2e)', () => {
 
       pageCount += 1;
 
-      // AC2: insert a brand-new order — newer than every seeded row, so it
-      // would sort first if pagination restarted — right after page 1,
-      // before fetching page 2. It must not leak into a later page of an
+      // Insert a newer order between pages: it must not leak into an
       // in-flight cursor walk.
       if (pageCount === 1 && !insertedMidPagination) {
         await makeOrder({

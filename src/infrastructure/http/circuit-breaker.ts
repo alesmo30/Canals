@@ -28,19 +28,9 @@ export class CircuitOpenError extends Error {
 }
 
 /**
- * SPEC 03: hand-written, three states, one breaker per provider
- * (`HttpPaymentGateway`'s `charge()`/`getStatus()` share one; Geoapify has
- * its own). Counts each failed *attempt* — every `execute()` call whose
- * operation throws — not each exhausted retry loop; `retry.ts` calls
- * `execute()` once per attempt, so five failed attempts can come from as
- * few as two orders (Decisions).
- *
- * `execute()` takes no failure classifier: whatever the operation throws
- * counts as a failure, whatever it resolves counts as a success. The
- * caller (`HttpPaymentGateway`/`GeoapifyGeocodingProvider`) decides what
- * that means — a 402 or a 404 from `getStatus` resolves normally and
- * never reaches here as a failure, only a 5xx, a network error or a
- * timeout does.
+ * One breaker per provider; counts failed attempts, not exhausted retry
+ * loops. A throw is a failure, a resolve is a success — the caller decides.
+ * See knowledge/http-payments.md#circuit-breaker
  */
 export class CircuitBreaker {
   private readonly options: CircuitBreakerOptions;
@@ -116,7 +106,7 @@ export class CircuitBreaker {
       this.transitionTo('CLOSED');
       return;
     }
-    // CLOSED: one success resets the counter (Decisions).
+    // CLOSED: one success resets the counter.
     this.consecutiveFailures = 0;
   }
 

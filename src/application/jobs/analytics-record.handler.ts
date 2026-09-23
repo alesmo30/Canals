@@ -4,11 +4,7 @@ import { withJobSpan } from './helpers/tracing.helper';
 import { JobHandler } from './job-handler';
 import { OrderConfirmedPayload } from '../../infrastructure/messaging/event-routing';
 
-/**
- * SPEC 04 Scope: "logs a structured domain event". No real analytics sink —
- * nothing leaves the process (Decisions, "The event contract" / "Out of
- * scope").
- */
+/** Logs a structured domain event; no real analytics sink — nothing leaves the process. */
 @Injectable()
 export class AnalyticsRecordHandler implements JobHandler<OrderConfirmedPayload> {
   readonly queue = 'analytics.record';

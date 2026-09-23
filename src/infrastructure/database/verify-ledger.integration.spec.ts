@@ -15,13 +15,6 @@ import { Money } from '../../domain/value-objects/money';
 import { ShippingAddress } from '../../domain/value-objects/shipping-address';
 import { CustomerOrmEntity } from './entities/customer.orm-entity';
 
-/**
- * specs/02-fulfilment-core.md, step 7. Integration test — same
- * prerequisites as the other `*.integration.spec.ts` files: DATABASE_URL
- * (+ PAYMENTS_URL, OTEL_EXPORTER_OTLP_ENDPOINT) exported, a migrated
- * Postgres reachable. Builds its own customer/product/warehouse/order
- * fixtures, not seed.ts.
- */
 describe('verify-ledger.sql (integration)', () => {
   const service = new InventoryService();
   const sql = readFileSync(join(__dirname, 'sql/verify-ledger.sql'), 'utf-8');

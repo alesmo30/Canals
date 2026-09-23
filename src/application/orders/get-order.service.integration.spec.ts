@@ -10,12 +10,6 @@ import { PaymentOrmEntity } from '../../infrastructure/database/entities/payment
 import { ProductOrmEntity } from '../../infrastructure/database/entities/product.orm-entity';
 import { OrdersReadRepository } from '../../infrastructure/database/repositories/orders-read.repository';
 
-/**
- * Integration test — DATABASE_URL (+ PAYMENTS_URL,
- * OTEL_EXPORTER_OTLP_ENDPOINT) exported, a migrated Postgres reachable.
- * Builds its own customer/order (randomUUID-scoped) rather than
- * depending on seed.ts (references/testing.md).
- */
 describe('GetOrderService (integration)', () => {
   let service: GetOrderService;
   let customerId: string;

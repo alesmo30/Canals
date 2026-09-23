@@ -1,6 +1,5 @@
 import { EntityManager } from 'typeorm';
 
-/** specs/02-fulfilment-core.md, Decisions: a named constant, not an environment variable — adding one would mean touching P0's env.schema.ts/.env.example for a value nobody tunes per deployment. */
 const LOCK_TIMEOUT = '3s';
 
 /** Postgres error code for "lock_timeout" firing while waiting on a row lock (55P03, lock_not_available). */
@@ -30,12 +29,9 @@ export interface InsertMovementParams {
 }
 
 /**
- * `SET LOCAL lock_timeout` + `SELECT ... FOR UPDATE ORDER BY product_id`
- * — the locking discipline shared by `InventoryService.reserve`,
- * `.release` and `.commit`. ORDER BY product_id, not the order the
- * caller's lines arrived in — otherwise two orders touching the same
- * products in reverse order could deadlock each other
- * (specs/02-fulfilment-core.md, Decisions).
+ * SET LOCAL lock_timeout + SELECT … FOR UPDATE ORDER BY product_id, shared
+ * by reserve/release/commit. Always lock in product_id order — any other
+ * order lets two orders deadlock.
  */
 export async function lockInventoryRows(
   manager: EntityManager,
@@ -74,7 +70,7 @@ export async function updateInventoryBalances(
   );
 }
 
-/** Appends one row to the append-only ledger — no `UPDATE`, no `DELETE`, ever, against this table (specs/02-fulfilment-core.md, acceptance criteria). */
+/** Appends to the append-only ledger — never UPDATE or DELETE this table. */
 export async function insertMovement(
   manager: EntityManager,
   params: InsertMovementParams,

@@ -32,12 +32,9 @@ type GeoapifyResponse =
   | { kind: 'configuration_error'; httpStatus: number };
 
 /**
- * Base for every failure worth retrying — `5xx` and `429` (transient),
- * plus `fetch` failures (timeout, network). The shared marker
- * `retry.ts`'s `isTransient` recognises. `401`/`403` are deliberately
- * NOT one of these: they resolve instead of throwing (Decisions — "a bad
- * key is not an outage, must not open the breaker"), so `retry.ts` never
- * retries them and `circuit-breaker.ts` never counts them.
+ * Transient failures (5xx, 429, fetch errors) that retry.ts retries.
+ * 401/403 resolve instead: a bad key isn't an outage and must not open the
+ * breaker.
  */
 abstract class GeoapifyRetryableError extends Error {}
 class ProviderErrorException extends GeoapifyRetryableError {}
@@ -51,10 +48,8 @@ function isRetryable(outcome: unknown): boolean {
 }
 
 /**
- * SPEC 03: opt-in `GeocodingProvider` over Geoapify's structured
- * `/v1/geocode/search` — the address already arrives as separate fields,
- * so free-text parsing would only add ambiguity (Decisions). Its own
- * `'geoapify'` breaker, the shared retry policy.
+ * Opt-in provider over Geoapify's structured search (fields already arrive
+ * separate). Own breaker, shared retry policy.
  */
 export class GeoapifyGeocodingProvider implements GeocodingProvider {
   private readonly apiKey: string;
@@ -102,7 +97,7 @@ export class GeoapifyGeocodingProvider implements GeocodingProvider {
     }
 
     // Reads only features[0].properties.lat/lon — the one thing this
-    // mapping depends on if Geoapify's response shape ever changes (Risks).
+    // mapping depends on if Geoapify's response shape ever changes.
     const [feature] = response.features;
     return Coordinates.of({
       latitude: feature.properties.lat,

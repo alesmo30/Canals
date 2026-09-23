@@ -68,14 +68,9 @@ export class OrdersReadRepository {
   constructor(private readonly dataSource: DataSource) {}
 
   /**
-   * specs/06-read-side.md, Decisions — the WHERE clause is an array of
-   * parameterized fragments assembled in TypeScript, not a static .sql
-   * file: R5.3's filters are optional and combinable, so no single fixed
-   * statement can express every subset. The cursor condition is a real
-   * Postgres row comparison (`(created_at, id) < (...)`), not two `OR`
-   * branches, so a `created_at` tie resolves correctly by `id`. `LIMIT
-   * pageSize + 1` is the lookahead the service (step 5) uses to compute
-   * `hasMore` without a second `COUNT(*)` query.
+   * WHERE built from parameterized fragments (filters are optional and
+   * combinable). The cursor uses a row comparison so `created_at` ties
+   * resolve by `id`. `LIMIT pageSize + 1` gives `hasMore` without COUNT(*).
    */
   async findPage(filters: OrdersPageFilters): Promise<OrderRow[]> {
     const conditions: string[] = [];
@@ -126,10 +121,8 @@ export class OrdersReadRepository {
   }
 
   /**
-   * `WHERE order_id = ANY($1)` — one query for the whole page, grouped by
-   * `order_id` in the service (R5.4). The explicit `::uuid[]` cast is
-   * what keeps this valid SQL when `orderIds` is empty (an empty page),
-   * rather than relying on the driver to infer the array's element type.
+   * One query for the whole page, grouped in the service. The `::uuid[]`
+   * cast keeps it valid when `orderIds` is empty.
    */
   async findItemsByOrderIds(orderIds: string[]): Promise<OrderItemRow[]> {
     const rows: OrderItemRow[] = await this.dataSource.query(
@@ -144,12 +137,8 @@ export class OrdersReadRepository {
   }
 
   /**
-   * specs/06-read-side.md, Decisions — `LEFT JOIN warehouses`, not `INNER
-   * JOIN`: `warehouse_id` is nullable in the schema, and this endpoint
-   * must not assume SPEC 05's own invariant (it always fills it before
-   * insert) — a null `warehouse_id` still returns the order, with
-   * `warehouse_name`/`distance_meters` coming back `null` from the
-   * unmatched join, no `CASE` needed.
+   * LEFT JOIN warehouses: `warehouse_id` is nullable, so the order still
+   * returns with null warehouse fields.
    */
   async findOrderById(id: string): Promise<OrderDetailRow | null> {
     const rows: OrderDetailRow[] = await this.dataSource.query(

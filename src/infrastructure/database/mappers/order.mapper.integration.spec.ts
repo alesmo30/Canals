@@ -18,13 +18,6 @@ import { OrderOrmEntity } from '../entities/order.orm-entity';
 import { ProductOrmEntity } from '../entities/product.orm-entity';
 import { WarehouseOrmEntity } from '../entities/warehouse.orm-entity';
 
-/**
- * Integration test — same prerequisites as data-source.spec.ts:
- * DATABASE_URL (+ PAYMENTS_URL, OTEL_EXPORTER_OTLP_ENDPOINT) exported, a
- * migrated Postgres reachable. Proves the mapper round-trips through the
- * real database, not just that the two directions type-check against each
- * other.
- */
 describe('order.mapper (integration)', () => {
   let customerId: string;
   let productId: string;
@@ -48,7 +41,7 @@ describe('order.mapper (integration)', () => {
     });
     productId = product.id;
 
-    // Newark, NJ — same coordinates as the seed's Newark warehouse (step 12).
+    // Newark, NJ — same coordinates as the seed's Newark warehouse.
     const warehouse = await AppDataSource.getRepository(
       WarehouseOrmEntity,
     ).save({

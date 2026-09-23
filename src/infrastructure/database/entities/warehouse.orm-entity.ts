@@ -3,18 +3,8 @@ import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 import type { GeoPoint } from '../interfaces/geo-point';
 
 /**
- * Mirrors `warehouses` (migration, step 7). No domain mirror (R0.5): this
- * is the selection-query repository's table (P1), not an in-memory
- * invariant.
- *
- * `location` is a GeoPoint — see geo-point.ts for what TypeORM actually
- * returns/accepts for a `geography` column once `spatialFeatureType`/`srid`
- * are declared, verified directly against a live database.
- *
- * `latitude`/`longitude` are `insert: false, update: false`: Postgres
- * itself rejects writes to them (GENERATED ALWAYS ... STORED, verified in
- * step 7/8), so TypeORM is told the same thing up front rather than
- * discovering it from a rejected query.
+ * `location` is a GeoPoint (see geo-point.ts). `latitude`/`longitude` are
+ * GENERATED columns — insert/update false because Postgres rejects writes to them.
  */
 @Entity('warehouses')
 export class WarehouseOrmEntity {

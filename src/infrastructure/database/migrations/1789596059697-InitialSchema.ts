@@ -1,21 +1,14 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * R0.4 (frozen contract): the full schema from data-model.dbml, hand-written
- * as raw SQL rather than generated — PostGIS geography columns, generated
- * columns, the GiST index and the partial unique index are not reliably
- * produced by `migration:generate` (see specs/01-foundation.md, Decisions).
- *
- * Built across two steps of the same spec, in one file: step 7 created the
- * extension, the six enums and the three reference tables (customers,
- * products, warehouses); step 8 added the remaining seven tables, every
- * CHECK constraint and index named in the DBML, and completed `down`.
+ * Hand-written SQL: PostGIS geography, generated columns, the GiST index and
+ * the partial unique index aren't reliably produced by `migration:generate`.
  */
 export class InitialSchema1789596059697 implements MigrationInterface {
   name = 'InitialSchema1789596059697';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // R0.4: PostGIS first — every geography column below depends on it.
+    // PostGIS first — every geography column depends on it.
     await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS postgis;`);
 
     // --- Enums (data-model.dbml) ---------------------------------------
@@ -94,11 +87,8 @@ export class InitialSchema1789596059697 implements MigrationInterface {
       `CREATE INDEX idx_products_condition ON products (condition);`,
     );
 
-    // Coordinates are fixed reference data, seeded once. Warehouses are
-    // never geocoded at request time — only the shipping address is (FR-3).
-    // latitude/longitude are generated columns derived from location, so
-    // they are readable in a plain SELECT without ever being able to drift
-    // out of sync (data-model.dbml note).
+    // Warehouses are seeded, never geocoded at request time. latitude/longitude
+    // are generated from location so they can't drift.
     await queryRunner.query(`
       CREATE TABLE warehouses (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -231,8 +221,8 @@ export class InitialSchema1789596059697 implements MigrationInterface {
 
     // --- Fulfilment -----------------------------------------------------------
 
-    // Created asynchronously by the worker on order.confirmed (P3). UNIQUE
-    // (order_id) is what makes that handler idempotent (data-model.dbml note).
+    // Written by the worker on order.confirmed; UNIQUE(order_id) makes that
+    // handler idempotent.
     await queryRunner.query(`
       CREATE TABLE shipments (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -280,8 +270,8 @@ export class InitialSchema1789596059697 implements MigrationInterface {
       CREATE INDEX idx_inventory_movements_order ON inventory_movements (order_id);
     `);
 
-    // Inserted BEFORE any work begins (FR-6), so the unique constraint is
-    // what serialises duplicate requests (data-model.dbml note).
+    // Inserted BEFORE any work begins, so the unique constraint serialises
+    // duplicate requests.
     await queryRunner.query(`
       CREATE TABLE idempotency_keys (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -305,9 +295,8 @@ export class InitialSchema1789596059697 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    // Reverse order throughout: tables before the tables/enums they
-    // reference. The seven tables step 8 added are dropped first, since
-    // they hold the foreign keys into the three reference tables below.
+    // Reverse order: tables holding foreign keys drop before the tables they
+    // reference.
     await queryRunner.query(`DROP TABLE IF EXISTS idempotency_keys;`);
     await queryRunner.query(`DROP TABLE IF EXISTS inventory_movements;`);
     await queryRunner.query(`DROP TABLE IF EXISTS shipments;`);

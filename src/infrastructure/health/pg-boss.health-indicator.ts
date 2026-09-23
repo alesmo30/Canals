@@ -8,12 +8,8 @@ import type { PgBoss } from 'pg-boss';
 import { PG_BOSS } from '../messaging/pg-boss.provider';
 
 /**
- * SPEC 04 Scope: "GET /health/ready checks the database and the queue" —
- * reported separately from `TypeOrmHealthIndicator`'s `database` key
- * (R3.1) even though both usually fail together, since both go through
- * Postgres. A genuine round-trip through the api's own `PgBoss` pool
- * (separate from TypeORM's, `infrastructure.md` §7) rather than assuming
- * DI resolving this provider at boot still means it is reachable now.
+ * Reported separately from the database check: a real round-trip through
+ * the api's own pg-boss pool.
  */
 @Injectable()
 export class PgBossHealthIndicator {

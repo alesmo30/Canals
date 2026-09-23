@@ -3,7 +3,7 @@ import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 import { bigintNumberTransformer } from '../transformers/bigint-number.transformer';
 import type { PaymentStatus } from '../../../domain/enum-types/payment-status';
 
-/** Runtime mirror of the `payment_status` enum (migration, step 7) — TypeORM's `enum` column option needs an actual array, not just a type. */
+/** Runtime mirror of payment_status (TypeORM's `enum` option needs an array). */
 const PAYMENT_STATUS_VALUES: readonly PaymentStatus[] = [
   'PENDING',
   'AUTHORIZED',
@@ -14,11 +14,7 @@ const PAYMENT_STATUS_VALUES: readonly PaymentStatus[] = [
   'REFUNDED',
 ];
 
-/**
- * Mirrors `payments` (migration, step 8). No domain mirror (R0.5):
- * inserted, never mutated by this service's own logic beyond a status
- * update — "folded into orders" per R0.5's table.
- */
+/** No domain class; only a status update beyond the insert. */
 @Entity('payments')
 export class PaymentOrmEntity {
   @PrimaryGeneratedColumn('uuid')

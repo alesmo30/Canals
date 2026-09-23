@@ -1,21 +1,11 @@
 import { AppDataSource } from './data-source';
 
 /**
- * R0.8 (frozen contract). Hardcoded UUIDs + `ON CONFLICT DO NOTHING`:
- * idempotent, so running this twice never duplicates a row, and later
- * phases' tests can reference these ids directly without querying for
- * them first (specs/01-foundation.md, Decisions).
- *
- * Raw SQL, not repository.save()/upsert() — TypeORM's upsert() does
- * "ON CONFLICT DO UPDATE", not "DO NOTHING"; getting the exact conflict
- * behaviour this file needs means writing the SQL directly, same as the
- * migration does for the same reason.
+ * Hardcoded UUIDs + `ON CONFLICT DO NOTHING`: idempotent, and ids can be
+ * referenced directly. Raw SQL because TypeORM's upsert() does DO UPDATE.
  */
 
-// P1's fixed customer (specs/02-fulfilment-core.md, Scope + Decisions):
-// exists so an `orders` row can be inserted without inventing a customer
-// per test. Hardcoded UUID, ON CONFLICT DO NOTHING like every other
-// seeded row. P4 reuses it for its demo.
+// Fixed customer, so an `orders` row can be inserted without inventing one per test.
 const CUSTOMER = {
   id: 'c0000000-0000-0000-0000-000000000001',
   email: 'fixed.customer@example.com',
@@ -180,16 +170,16 @@ const PRODUCTS = [
 // warehouse index -> { product index -> quantity_available }. Indexes are
 // 0-based into WAREHOUSES / PRODUCTS above.
 //
-// R0.8's four required scenarios, by product:
+// The four required stock scenarios, by product:
 //   [13] AirPods Pro 3        -> scenario 1: exactly one warehouse (Newark) has it
 //   [3]  iPhone 17            -> scenario 2: three warehouses spread across the
 //                                 country (Newark/LA/Miami), so "nearest" is
 //                                 unambiguous for any reasonable shipping address
 //   [9]  MacBook Pro 16" Pro  -> scenario 3: 2 units everywhere, no single
 //                                 warehouse can fill a request for more than 2 —
-//                                 and orders never split across warehouses (C-6)
+//                                 and orders never split across warehouses
 //   [12] iPad Pro 11"         -> scenario 4: exactly 5 units, Newark only — the
-//                                 boundary case P6's concurrency proof needs
+//                                 boundary case the concurrency proof needs
 const INVENTORY: Record<number, Record<number, number>> = {
   0: { 0: 25, 2: 15, 3: 30, 5: 10, 6: 12, 9: 2, 10: 20, 12: 5, 13: 50, 14: 40 }, // Newark
   1: { 1: 10, 3: 25, 4: 20, 5: 8, 7: 5, 8: 6, 9: 2, 14: 35 }, // Los Angeles

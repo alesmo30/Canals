@@ -47,13 +47,9 @@ interface CancelUnpaidParams {
 }
 
 /**
- * specs/07-hardening-demo.md — the one implementation of "settle this
- * order", shared by the saga's Phase 3, the reservation reaper (R6.1) and
- * payment reconciliation (R6.2). Without it, three code paths each
- * re-implement the same transition/inventory/event sequence, and the
- * saga's in-memory `Order` could overwrite a `CANCELLED` the reaper wrote
- * in between (Decisions — the row lock is what makes two settlers racing
- * on the same order resolve to exactly one winner).
+ * The one "settle this order" path, shared by the saga, the reaper and
+ * reconciliation; its row lock makes racing settlers resolve to one winner.
+ * See knowledge/orders-saga.md#settlement
  */
 @Injectable()
 export class OrderSettlementService {
@@ -133,12 +129,9 @@ export class OrderSettlementService {
   }
 
   /**
-   * The steps every method above shares: lock the order row, bail out
-   * `ALREADY_SETTLED` if it moved on already, update the `payments` row
-   * when a resolution was passed in, then hand off to the caller's own
-   * transition (the part that actually differs between confirm/fail/
-   * cancel — kept in each method above, not hidden in here,
-   * references/coding-conventions.md).
+   * Shared steps: lock the order row, return ALREADY_SETTLED if it moved on,
+   * update payments if a resolution was passed, then run the caller's own
+   * transition.
    */
   private async settle(
     orderId: string,

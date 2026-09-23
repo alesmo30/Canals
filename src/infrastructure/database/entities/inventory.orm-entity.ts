@@ -1,15 +1,9 @@
 import { Column, Entity, PrimaryColumn } from 'typeorm';
 
 /**
- * Mirrors `inventory` (migration, step 8) — the concurrency hot path. No
- * domain mirror (R0.5): correctness depends on `SELECT ... FOR UPDATE`
- * (plain, blocking — never `SKIP LOCKED`; a row locked by a concurrent
- * reservation is contention to wait out, not stock to report as absent,
- * see `InventoryService.reserve`, specs/02-fulfilment-core.md Decisions),
- * so an in-memory `reserve()` would be a lie about where the real
- * guarantee lives. `quantity_available >= 0` and `quantity_reserved >= 0`
- * are enforced by the CHECK constraints created in the migration, not by
- * this class.
+ * Concurrency hot path. Correctness lives in `SELECT ... FOR UPDATE` (plain,
+ * blocking — never `SKIP LOCKED`) and the non-negative CHECK constraints, not
+ * in this class. See knowledge/allocation.md#locking
  */
 @Entity('inventory')
 export class InventoryOrmEntity {
