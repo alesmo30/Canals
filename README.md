@@ -25,7 +25,7 @@ Order management API for an online store that sells Apple products. It creates o
 > - **Every execution logged.** Status, duration, order id and `X-Correlation-Id` of each request, with the full request and response.
 > - **Request timeline.** A visual lifecycle of each order from the new `GET /orders/:id/timeline` endpoint: Idempotency → Reserve → Charge → Settle → Fan-out jobs → Fulfilment, plus every event in order. It refreshes while anything is pending, so a `0004` order visibly settles when the reconciliation job runs. "View trace in Grafana" opens Tempo filtered by the correlation id.
 >
-> To run it: `git checkout feat/console && docker compose up -d --build`, then open **http://localhost:5173** (the api stays on `:3000`). Details are in that branch's README and in the step by **[step guide here](https://drive.google.com/file/d/1Rw99X7RFs4mq82m0yGZiD_hj6g7FNTDv/view?usp=sharing)**, section "Canals Console".
+> To run it: `git checkout feat/console && docker compose up -d --build`, then open **http://localhost:5173** (the api stays on `:3000`). Details are in that branch's README and in the **[step by step guide here](https://drive.google.com/file/d/1Rw99X7RFs4mq82m0yGZiD_hj6g7FNTDv/view?usp=sharing)**, section "Canals Console".
 
 Built by **Alejandro Estrada Moscoso** ([alejandro.estradam@udea.edu.co](mailto:alejandro.estradam@udea.edu.co)) as the Canals backend assessment.
 
