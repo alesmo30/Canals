@@ -1,6 +1,9 @@
 # compiled output
 /dist
 /node_modules
+# web/ console (feat/console) build output and deps
+/web/dist
+/web/node_modules
 *.tsbuildinfo
 
 # logs
