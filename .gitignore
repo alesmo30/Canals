@@ -61,3 +61,6 @@ tags
 
 # tmp
 tmp/
+
+# git worktrees
+.trees/
